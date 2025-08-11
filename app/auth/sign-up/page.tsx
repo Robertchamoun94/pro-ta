@@ -1,9 +1,21 @@
+import { Suspense } from 'react';
+
+export const dynamic = 'force-dynamic';
+
+export default function Page() {
+  return (
+    <Suspense fallback={null}>
+      <SignUpClient />
+    </Suspense>
+  );
+}
+
 'use client';
 import { useState } from 'react';
 import { supabaseBrowser } from '@/lib/supabase-browser';
 import { useSearchParams } from 'next/navigation';
 
-export default function SignUpPage() {
+function SignUpClient() {
   const [name, setName] = useState('');
   const [gender, setGender] = useState<'Male' | 'Female' | ''>('');
   const [age, setAge] = useState<number | ''>('');
@@ -42,8 +54,7 @@ export default function SignUpPage() {
     });
     setLoading(false);
     if (error) return setErr(error.message);
-    // HÅRD redirect
-    window.location.replace(next);
+    window.location.replace(next); // hård redirect
   }
 
   return (

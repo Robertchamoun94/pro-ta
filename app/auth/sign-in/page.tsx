@@ -1,9 +1,21 @@
+import { Suspense } from 'react';
+
+export const dynamic = 'force-dynamic';
+
+export default function Page() {
+  return (
+    <Suspense fallback={null}>
+      <SignInClient />
+    </Suspense>
+  );
+}
+
 'use client';
 import { useState } from 'react';
 import { supabaseBrowser } from '@/lib/supabase-browser';
 import { useSearchParams } from 'next/navigation';
 
-export default function SignInPage() {
+function SignInClient() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [err, setErr] = useState<string | null>(null);
@@ -18,8 +30,7 @@ export default function SignInPage() {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     setLoading(false);
     if (error) return setErr(error.message);
-    // HÅRD redirect (uppdaterar cookies/SSR omedelbart)
-    window.location.replace(next);
+    window.location.replace(next); // hård redirect
   }
 
   return (
