@@ -29,26 +29,39 @@ export default function SignInClient() {
     [searchParams]
   );
 
+  // Håll server-cookie i synk när token förnyas eller man loggar ut
+  React.useEffect(() => {
+    const { data } = supabase().auth.onAuthStateChange(async (event, session) => {
+      if (event === 'TOKEN_REFRESHED' || event === 'SIGNED_OUT') {
+        await fetch('/auth/callback', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ event, session }),
+        });
+      }
+    });
+    return () => data.subscription.unsubscribe();
+  }, []);
+
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
     setLoading(true);
     try {
       const sb = supabase();
-      const { data, error } = await sb.auth.signInWithPassword({
-        email,
-        password,
-      });
-      if (error) {
-        setError(error.message);
-        return;
-      }
+      const { data, error } = await sb.auth.signInWithPassword({ email, password });
+      if (error) { setError(error.message); return; }
+
       if (data.session) {
-        if (typeof window !== 'undefined') {
-          window.location.assign(redirectTo);
-        } else {
-          router.replace(redirectTo);
-        }
+        // Viktigt: posta sessionen till route handlern så att servern får cookien
+        await fetch('/auth/callback', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ event: 'SIGNED_IN', session: data.session }),
+        });
+
+        if (typeof window !== 'undefined') window.location.assign(redirectTo);
+        else router.replace(redirectTo);
       } else {
         router.replace(redirectTo);
       }
