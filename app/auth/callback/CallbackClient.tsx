@@ -27,7 +27,7 @@ export default function CallbackClient() {
         setError('Missing auth code in URL.');
         return;
       }
-      const { error } = await supabase().auth.exchangeCodeForSession({ code });
+      const { error } = await supabase().auth.exchangeCodeForSession(code);
       if (error) {
         setError(error.message);
         return;
