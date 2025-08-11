@@ -34,9 +34,9 @@ export default function SignUpClient() {
   const [info, setInfo] = React.useState<string | null>(null);
 
   const redirectTo = React.useMemo(
-    () => searchParams.get('redirect') ?? '/dashboard',
-    [searchParams]
-  );
+  () => searchParams.get('redirect') ?? '/',
+  [searchParams]
+);
 
   // Håll server-cookie i synk för token refresh / sign-out
   React.useEffect(() => {
