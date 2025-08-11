@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import type { FormEvent } from 'react';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
@@ -17,19 +17,16 @@ function supabase(): SupabaseClient {
 
 export default function SignInClient() {
   const router = useRouter();
-  const searchParams = useSearchParams();
 
   const [email, setEmail] = React.useState('');
   const [password, setPassword] = React.useState('');
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
-  const redirectTo = React.useMemo(
-    () => searchParams.get('redirect') ?? '/dashboard',
-    [searchParams]
-  );
+  // Vi tvingar redirect till startsidan
+  const redirectTo = '/';
 
-  // Håll server-cookie i synk när token förnyas eller man loggar ut
+  // Håll server-cookie i synk vid token refresh / sign-out
   React.useEffect(() => {
     const { data } = supabase().auth.onAuthStateChange(async (event, session) => {
       if (event === 'TOKEN_REFRESHED' || event === 'SIGNED_OUT') {
@@ -53,7 +50,7 @@ export default function SignInClient() {
       if (error) { setError(error.message); return; }
 
       if (data.session) {
-        // Viktigt: posta sessionen till route handlern så att servern får cookien
+        // Posta sessionen till servern så cookien sätts
         await fetch('/auth/callback', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -122,10 +119,7 @@ export default function SignInClient() {
 
           <p className="text-xs text-gray-500">
             No account?{' '}
-            <a
-              href={`/auth/sign-up?redirect=${encodeURIComponent(redirectTo)}`}
-              className="underline underline-offset-2 hover:no-underline"
-            >
+            <a href="/auth/sign-up" className="underline underline-offset-2 hover:no-underline">
               Create one
             </a>.
           </p>

@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import type { FormEvent } from 'react';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
@@ -19,7 +19,6 @@ function supabase(): SupabaseClient {
 
 export default function SignUpClient() {
   const router = useRouter();
-  const searchParams = useSearchParams();
 
   const [name, setName] = React.useState('');
   const [gender, setGender] = React.useState<Gender>('other');
@@ -33,10 +32,8 @@ export default function SignUpClient() {
   const [error, setError] = React.useState<string | null>(null);
   const [info, setInfo] = React.useState<string | null>(null);
 
-  const redirectTo = React.useMemo(
-  () => searchParams.get('redirect') ?? '/',
-  [searchParams]
-);
+  // Vi tvingar redirect till startsidan
+  const redirectTo = '/';
 
   // Håll server-cookie i synk för token refresh / sign-out
   React.useEffect(() => {
@@ -99,7 +96,7 @@ export default function SignUpClient() {
         return;
       }
 
-      // Email confirmations ON
+      // Om confirmations är ON
       setInfo('Check your inbox to confirm your email.');
     } catch (err: any) {
       setError(err?.message ?? 'Unexpected error during sign up.');
@@ -128,19 +125,25 @@ export default function SignUpClient() {
         )}
 
         <form onSubmit={onSubmit} className="space-y-4">
-          {/* — inputs som tidigare — */}
           <div className="grid grid-cols-1 gap-4">
             <div>
               <label className="block text-sm mb-1">Name</label>
-              <input className="w-full rounded-xl border border-gray-300 dark:border-gray-700 bg-transparent px-3 py-2 outline-none focus:ring-2 focus:ring-gray-400"
-                     value={name} onChange={(e)=>setName(e.target.value)} required />
+              <input
+                className="w-full rounded-xl border border-gray-300 dark:border-gray-700 bg-transparent px-3 py-2 outline-none focus:ring-2 focus:ring-gray-400"
+                value={name}
+                onChange={(e)=>setName(e.target.value)}
+                required
+              />
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm mb-1">Gender</label>
-                <select className="w-full rounded-xl border border-gray-300 dark:border-gray-700 bg-transparent px-3 py-2 outline-none focus:ring-2 focus:ring-gray-400"
-                        value={gender} onChange={(e)=>setGender(e.target.value as Gender)}>
+                <select
+                  className="w-full rounded-xl border border-gray-300 dark:border-gray-700 bg-transparent px-3 py-2 outline-none focus:ring-2 focus:ring-gray-400"
+                  value={gender}
+                  onChange={(e)=>setGender(e.target.value as Gender)}
+                >
                   <option value="male">Male</option>
                   <option value="female">Female</option>
                   <option value="other">Other</option>
@@ -148,51 +151,80 @@ export default function SignUpClient() {
               </div>
               <div>
                 <label className="block text-sm mb-1">Age</label>
-                <input className="w-full rounded-xl border border-gray-300 dark:border-gray-700 bg-transparent px-3 py-2 outline-none focus:ring-2 focus:ring-gray-400"
-                       type="number" min={13} max={120} value={age}
-                       onChange={(e)=>setAge(e.target.value)} required />
+                <input
+                  className="w-full rounded-xl border border-gray-300 dark:border-gray-700 bg-transparent px-3 py-2 outline-none focus:ring-2 focus:ring-gray-400"
+                  type="number"
+                  min={13}
+                  max={120}
+                  value={age}
+                  onChange={(e)=>setAge(e.target.value)}
+                  required
+                />
               </div>
             </div>
 
             <div>
               <label className="block text-sm mb-1">Email</label>
-              <input className="w-full rounded-xl border border-gray-300 dark:border-gray-700 bg-transparent px-3 py-2 outline-none focus:ring-2 focus:ring-gray-400"
-                     type="email" value={email}
-                     onChange={(e)=>setEmail(e.target.value)} required />
+              <input
+                className="w-full rounded-xl border border-gray-300 dark:border-gray-700 bg-transparent px-3 py-2 outline-none focus:ring-2 focus:ring-gray-400"
+                type="email"
+                value={email}
+                onChange={(e)=>setEmail(e.target.value)}
+                required
+              />
             </div>
 
             <div>
               <label className="block text-sm mb-1">Password</label>
-              <input className="w-full rounded-xl border border-gray-300 dark:border-gray-700 bg-transparent px-3 py-2 outline-none focus:ring-2 focus:ring-gray-400"
-                     type="password" value={password}
-                     onChange={(e)=>setPassword(e.target.value)} minLength={8} required />
+              <input
+                className="w-full rounded-xl border border-gray-300 dark:border-gray-700 bg-transparent px-3 py-2 outline-none focus:ring-2 focus:ring-gray-400"
+                type="password"
+                value={password}
+                onChange={(e)=>setPassword(e.target.value)}
+                minLength={8}
+                required
+              />
             </div>
 
             <div>
               <label className="block text-sm mb-1">Confirm password</label>
-              <input className="w-full rounded-xl border border-gray-300 dark:border-gray-700 bg-transparent px-3 py-2 outline-none focus:ring-2 focus:ring-gray-400"
-                     type="password" value={confirm}
-                     onChange={(e)=>setConfirm(e.target.value)} minLength={8} required />
+              <input
+                className="w-full rounded-xl border border-gray-300 dark:border-gray-700 bg-transparent px-3 py-2 outline-none focus:ring-2 focus:ring-gray-400"
+                type="password"
+                value={confirm}
+                onChange={(e)=>setConfirm(e.target.value)}
+                minLength={8}
+                required
+              />
             </div>
 
             <label className="flex items-center gap-2 text-sm select-none">
-              <input type="checkbox" className="h-4 w-4 rounded border-gray-300 dark:border-gray-700"
-                     checked={accept} onChange={(e)=>setAccept(e.target.checked)} />
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded border-gray-300 dark:border-gray-700"
+                checked={accept}
+                onChange={(e)=>setAccept(e.target.checked)}
+              />
               <span>
-                I accept the <a href="/terms" className="underline underline-offset-2 hover:no-underline">Terms</a> and
+                I accept the{' '}
+                <a href="/terms" className="underline underline-offset-2 hover:no-underline">Terms</a> and
                 <a href="/privacy" className="underline underline-offset-2 hover:no-underline"> Privacy Policy</a>.
               </span>
             </label>
 
-            <button type="submit" disabled={loading}
-              className="mt-2 w-full rounded-2xl px-4 py-2 font-medium shadow-sm border border-gray-900/10 dark:border-white/10 hover:opacity-90 disabled:opacity-60">
+            <button
+              type="submit"
+              disabled={loading}
+              className="mt-2 w-full rounded-2xl px-4 py-2 font-medium shadow-sm border border-gray-900/10 dark:border-white/10 hover:opacity-90 disabled:opacity-60"
+            >
               {loading ? 'Creating account…' : 'Create account'}
             </button>
 
             <p className="text-xs text-gray-500">
               Already have an account?{' '}
-              <a href={`/auth/sign-in?redirect=${encodeURIComponent(redirectTo)}`}
-                 className="underline underline-offset-2 hover:no-underline">Sign in</a>.
+              <a href="/auth/sign-in" className="underline underline-offset-2 hover:no-underline">
+                Sign in
+              </a>.
             </p>
           </div>
         </form>
