@@ -1,46 +1,35 @@
-import Link from 'next/link';
-import { supabaseServer } from '@/lib/supabase-server';
+export const dynamic = 'force-dynamic';
+
+import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
+import { createServerComponentClient } from '@supabase/auth-helpers-nextjs';
 
 export default async function DashboardPage() {
-  const supabase = supabaseServer();
-  const { data } = await supabase.auth.getUser();
-  const user = data.user;
-  if (!user) redirect('/auth/sign-in');
+  // Läs session på serversidan (via cookies)
+  const supabase = createServerComponentClient({ cookies });
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
 
-  const name = user.user_metadata?.name || '';
-  const email = user.email || '';
-  const isSub = !!user.user_metadata?.is_subscriber;
+  // Ingen session → skicka till sign-in och tillbaka hit efteråt
+  if (!session) {
+    redirect(`/auth/sign-in?redirect=${encodeURIComponent('/dashboard')}`);
+  }
 
+  // === Din dashboard-UI kan ligga här nedanför ===
+  // Lägg gärna tillbaka din riktiga dashboard sedan.
   return (
-    <div className="space-y-6">
-      {/* Top bar with back button */}
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold">Dashboard</h1>
-        <Link href="/" className="btn">
-          ← Back to analysis
-        </Link>
-      </div>
+    <main className="min-h-[70vh] px-6 py-10">
+      <h1 className="text-2xl font-semibold mb-2">Dashboard</h1>
+      <p className="text-sm text-gray-500 mb-6">
+        Signed in as <span className="font-medium">{session.user.email}</span>
+      </p>
 
-      <div className="card p-6">
-        <h2 className="text-lg font-semibold mb-2">Welcome{ name ? `, ${name}` : '' }</h2>
-        <p className="opacity-80 text-sm">
-          Signed in as <span className="font-mono">{email}</span>
+      <div className="rounded-2xl border border-gray-200 dark:border-gray-800 p-6">
+        <p className="text-sm text-gray-400">
+          Replace this placeholder with your ArcSignals dashboard content.
         </p>
       </div>
-
-      <div className="card p-6">
-        <h2 className="font-semibold mb-2">Subscription</h2>
-        <p className="text-sm">
-          Status:{' '}
-          <span className={`font-medium ${isSub ? 'text-green-400' : 'text-red-400'}`}>
-            {isSub ? 'Active' : 'Inactive'}
-          </span>
-        </p>
-        <p className="text-xs opacity-60 mt-2">
-          After Stripe integration your status will update automatically.
-        </p>
-      </div>
-    </div>
+    </main>
   );
 }
