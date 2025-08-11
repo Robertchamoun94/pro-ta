@@ -1,19 +1,19 @@
-import './styles.css';
+import './globals.css';
 import type { Metadata } from 'next';
-import { BRAND } from '@/lib/config';
+import type { ReactNode } from 'react';
+import HeaderAuth from '../components/HeaderAuth'; // server-komponent som läser session
 
 export const metadata: Metadata = {
-  title: `${BRAND.name} — AI-powered Technical Analysis`,
-  description: 'Generate professional technical analysis reports as downloadable PDFs.'
+  title: 'ArcSignals',
+  description: 'AI-powered technical analysis',
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" className="dark">
-      <body className="min-h-screen">
-        <div className="max-w-5xl mx-auto px-4 py-8">
-          {children}
-        </div>
+    <html lang="en">
+      <body className="min-h-screen bg-black text-white">
+        <HeaderAuth />
+        {children}
       </body>
     </html>
   );
