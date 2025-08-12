@@ -4,8 +4,8 @@ export default function Page() {
   return (
     <>
       <section className="mb-4">
-        <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight">ArcSignals</h1>
-        <p className="mt-1 text-sm text-slate-600">AI-powered technical analysis • dark theme</p>
+        {/* Endast den mindre taglinen */}
+        <p className="text-sm text-slate-600">AI-powered technical analysis</p>
       </section>
 
       <section className="mx-auto w-full max-w-3xl rounded-2xl border border-slate-200 bg-white p-5 sm:p-6 shadow-sm">

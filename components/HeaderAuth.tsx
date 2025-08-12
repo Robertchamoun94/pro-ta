@@ -15,14 +15,10 @@ export default async function HeaderAuth() {
       <div className="mx-auto max-w-6xl h-14 px-4 flex items-center justify-between">
         <Link href="/" className="flex items-center gap-3">
           <LogoMark className="h-6 w-6" />
-          <div className="leading-tight">
-            <div className="font-semibold tracking-tight text-slate-900">ArcSignals</div>
-            <div className="text-[11px] text-slate-500">AI-powered technical analysis • dark theme</div>
-          </div>
+          <div className="font-semibold tracking-tight text-slate-900">ArcSignals</div>
         </Link>
 
         <nav className="flex items-center gap-3 text-sm">
-          {/* Pricing visas alltid */}
           <Link
             href="/pricing"
             className="px-3 py-1.5 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-100 transition"
