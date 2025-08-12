@@ -121,7 +121,6 @@ export default function AnalyzeForm() {
             </button>
           </>
         )}
-        <span className="text-[11px] rounded-full border border-slate-200 px-2 py-0.5 text-slate-500">Beta</span>
       </div>
 
       {error && <p className="text-xs text-red-600">{error}</p>}
