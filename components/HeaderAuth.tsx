@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { cookies } from 'next/headers';
 import { createServerComponentClient } from '@supabase/auth-helpers-nextjs';
 import LogoMark from './LogoMark';
+import NavBar from './NavBar';
 
 export default async function HeaderAuth() {
   const supabase = createServerComponentClient({ cookies });
@@ -18,48 +19,8 @@ export default async function HeaderAuth() {
           <div className="font-semibold tracking-tight text-slate-900">ArcSignals</div>
         </Link>
 
-        <nav className="flex items-center gap-3 text-sm">
-          <Link
-            href="/pricing"
-            className="px-3 py-1.5 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-100 transition"
-          >
-            Pricing
-          </Link>
-
-          {!session ? (
-            <>
-              <Link
-                href="/auth/sign-in"
-                className="px-3 py-1.5 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-100 transition"
-              >
-                Sign in
-              </Link>
-              <Link
-                href="/auth/sign-up"
-                className="px-3 py-1.5 rounded-lg border border-slate-300 bg-slate-900 text-white hover:opacity-90 transition"
-              >
-                Create account
-              </Link>
-            </>
-          ) : (
-            <>
-              <span className="hidden sm:inline text-slate-500">
-                Signed in as <span className="text-slate-800">{email}</span>
-              </span>
-              <Link
-                href="/dashboard"
-                className="px-3 py-1.5 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-100 transition"
-              >
-                Dashboard
-              </Link>
-              <form action="/auth/signout" method="post">
-                <button className="px-3 py-1.5 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-100 transition">
-                  Sign out
-                </button>
-              </form>
-            </>
-          )}
-        </nav>
+        {/* Desktop: inline nav  •  Mobile: compakt meny */}
+        <NavBar authed={!!session} email={email} />
       </div>
     </header>
   );
