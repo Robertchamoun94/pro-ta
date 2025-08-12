@@ -8,22 +8,13 @@ export const metadata: Metadata = {
   description: 'AI-powered technical analysis',
 };
 
-// säkerställ att layouten aldrig cachas så auth-headern alltid är korrekt
+// säkerställ korrekt header (ingen statisk cache)
 export const dynamic = 'force-dynamic';
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
-      <body
-        className="
-          min-h-screen text-white antialiased
-          bg-[#0B1220]
-          [background-image:
-            radial-gradient(70%_60%_at_50%_-10%,rgba(56,189,248,.08),transparent),
-            radial-gradient(60%_60%_at_100%_-20%,rgba(59,130,246,.06),transparent)
-          ]
-        "
-      >
+      <body className="min-h-screen bg-slate-50 text-slate-900 antialiased">
         <HeaderAuth />
         <main className="mx-auto w-full max-w-6xl px-4 py-8">{children}</main>
       </body>
