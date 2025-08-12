@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
+import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import OpenAI from 'openai';
 import { buildPrompt, type TAJson } from '@/lib/prompt';
 import { renderPdfStructured } from '@/lib/pdf';
-import { getUser, requireAccess } from '@/lib/auth';
 
-export const runtime = 'nodejs';
+export const runtime = 'nodejs';     // krävs för PDF/Node-APIs
 export const maxDuration = 60;
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -18,38 +19,55 @@ function extractJson(s: string): string {
   return s.trim();
 }
 
+// Hjälp: hämta första befintliga fältet bland flera namn
+function getFirst(form: FormData, ...names: string[]): FormDataEntryValue | null {
+  for (const n of names) {
+    const v = form.get(n);
+    if (v !== null && v !== undefined) return v;
+  }
+  return null;
+}
+
+// Konvertera File -> {buf, dataUrl}
+async function toBufAndDataUrl(f?: File | null) {
+  if (!f) return { buf: undefined as Buffer | undefined, url: undefined as string | undefined };
+  const ab = await f.arrayBuffer();
+  const buf = Buffer.from(ab);
+  const mime = f.type && f.type.startsWith('image/') ? f.type : 'image/jpeg';
+  const url = `data:${mime};base64,${buf.toString('base64')}`;
+  return { buf, url };
+}
+
 export async function POST(req: NextRequest) {
   try {
-    // 🔒 kräver inloggning (Supabase)
-    const user = await getUser();
-    if (!requireAccess(user)) {
-      return new NextResponse('Login required', { status: 401 });
+    // --- AUTH: läs session via Supabase-cookie (server-side) ---
+    const supabase = createRouteHandlerClient({ cookies });
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    if (!session) {
+      // Redirecta till sign-in om ej inloggad
+      return NextResponse.redirect(new URL('/auth/sign-in?redirect=/', req.url));
+      // Alternativ: return NextResponse.json({ error: 'Login required' }, { status: 401 });
     }
+    // ----------------------------------------------------------
 
     // Formdata
     const form = await req.formData();
-    const asset = String(form.get('asset') || '').trim();
-    const price = String(form.get('price') || '').trim();
+    const asset = String(getFirst(form, 'asset') ?? '').trim();
+    const price = String(getFirst(form, 'price') ?? '').trim();
     if (!asset || !price) {
       return new NextResponse('Asset and price are required', { status: 400 });
     }
 
-    const img1d = form.get('img1d') as File | null;
-    const img1w = form.get('img1w') as File | null;
-    const img1m = form.get('img1m') as File | null;
-
-    // Läs filer -> Buffer (för PDF) + data-URL (för OpenAI)
-    async function toBufAndDataUrl(f?: File | null) {
-      if (!f) return { buf: undefined as Buffer | undefined, url: undefined as string | undefined };
-      const ab = await f.arrayBuffer();
-      const buf = Buffer.from(ab);
-      const mime = f.type && f.type.startsWith('image/') ? f.type : 'image/jpeg';
-      const url = `data:${mime};base64,${buf.toString('base64')}`;
-      return { buf, url };
-    }
+    // Stöder både nya (chart*) och gamla (img*) fältnamn
+    const f1d = getFirst(form, 'chart1d', 'img1d') as File | null;
+    const f1w = getFirst(form, 'chart1w', 'img1w') as File | null;
+    const f1m = getFirst(form, 'chart1m', 'img1m') as File | null;
 
     const [{ buf: buf1d, url: url1d }, { buf: buf1w, url: url1w }, { buf: buf1m, url: url1m }] =
-      await Promise.all([toBufAndDataUrl(img1d), toBufAndDataUrl(img1w), toBufAndDataUrl(img1m)]);
+      await Promise.all([toBufAndDataUrl(f1d), toBufAndDataUrl(f1w), toBufAndDataUrl(f1m)]);
 
     // Prompt + multimodalt innehåll
     const prompt = buildPrompt(asset, price);
@@ -63,14 +81,14 @@ export async function POST(req: NextRequest) {
       messages: [
         { role: 'system', content: 'You return ONLY raw JSON in English that matches the user schema. No markdown.' },
         // @ts-ignore — multimodal content array
-        { role: 'user', content: userContent }
-      ]
+        { role: 'user', content: userContent },
+      ],
     });
 
     const raw = chat.choices?.[0]?.message?.content || '';
     const jsonText = extractJson(raw);
 
-    // Tolkning av JSON (fallback om det skulle fallera)
+    // Tolkning av JSON (fallback om parsen fallerar)
     let data: TAJson;
     try {
       data = JSON.parse(jsonText) as TAJson;
@@ -83,26 +101,26 @@ export async function POST(req: NextRequest) {
         structures: {},
         scenarios: {
           long: { bias: 'neutral', entry: '-', stop: '-', tps: [], rr: undefined, notes: '-' },
-          short: { bias: 'neutral', entry: '-', stop: '-', tps: [], rr: undefined, notes: '-' }
+          short: { bias: 'neutral', entry: '-', stop: '-', tps: [], rr: undefined, notes: '-' },
         },
         risks: { invalidation: '-', risk_factors: [], volatility: '-' },
         summary: 'The analysis could not be structured from the model output.',
         disclaimer:
-          'Important: This document is not financial advice. It is a technical analysis for informational purposes only.'
+          'Important: This document is not financial advice. It is a technical analysis for informational purposes only.',
       };
     }
 
     // Rendera PDF
     const pdf = await renderPdfStructured({
       data,
-      images: { img1d: buf1d, img1w: buf1w, img1m: buf1m }
+      images: { img1d: buf1d, img1w: buf1w, img1m: buf1m },
     });
 
     return new NextResponse(pdf, {
       headers: {
         'Content-Type': 'application/pdf',
-        'Content-Disposition': `attachment; filename="${asset.replace(/[^a-z0-9_-]/gi, '_')}_analysis.pdf"`
-      }
+        'Content-Disposition': `attachment; filename="${asset.replace(/[^a-z0-9_-]/gi, '_')}_analysis.pdf"`,
+      },
     });
   } catch (err: any) {
     const msg =
