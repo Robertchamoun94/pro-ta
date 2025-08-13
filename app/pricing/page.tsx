@@ -1,9 +1,10 @@
 import Link from 'next/link';
+import CheckoutButton from './CheckoutButton';
 
 function CheckIcon(props: React.SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true" {...props}>
-      <path d="M20 6 9 17l-5-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M20 6 9 17l-5-5" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -97,17 +98,10 @@ function PlanCard({ plan, highlight = false }: { plan: Plan; highlight?: boolean
         ))}
       </ul>
 
-      <form action="/api/checkout" method="POST" className="mt-6">
-        <input type="hidden" name="plan" value={plan.id} />
-        <button
-          type="submit"
-          className={`w-full rounded-lg px-4 py-2 font-medium transition border
-            ${highlight ? 'bg-slate-900 text-white border-slate-900 hover:opacity-90'
-                        : 'bg-white text-slate-800 border-slate-300 hover:bg-slate-50'}`}
-        >
-          {plan.cta}
-        </button>
-      </form>
+      {/* Checkout-knapp (Client Component) */}
+      <div className="mt-6">
+        <CheckoutButton planId={plan.id} cta={plan.cta} highlight={highlight} />
+      </div>
     </div>
   );
 }
@@ -115,14 +109,19 @@ function PlanCard({ plan, highlight = false }: { plan: Plan; highlight?: boolean
 export default function PricingPage() {
   return (
     <main className="mx-auto w-full max-w-6xl px-4 py-8">
-      <p className="mb-6 text-sm text-slate-600">Choose the plan that fits you. You’ll need an account to complete checkout.</p>
+      <p className="mb-6 text-sm text-slate-600">
+        Choose the plan that fits you. You’ll need an account to complete checkout.
+      </p>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <PlanCard plan={plans[0]} />
         <PlanCard plan={plans[1]} highlight />
         <PlanCard plan={plans[2]} />
       </div>
       <div className="mt-8 text-sm text-slate-500">
-        Have questions? <Link href="/contact" className="underline underline-offset-2 hover:no-underline">Contact us</Link>.
+        Have questions?{' '}
+        <Link href="/contact" className="underline underline-offset-2 hover:no-underline">
+          Contact us
+        </Link>.
       </div>
     </main>
   );
