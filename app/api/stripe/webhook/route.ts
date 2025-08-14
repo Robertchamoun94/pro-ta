@@ -8,12 +8,11 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
 async function markProcessed(id: string) {
   // Idempotenslogg – ignorera ev. fel (t.ex. unique-violation)
-  const { error } = await supabaseAdmin
+  await supabaseAdmin
     .from('stripe_events')
     .insert({ id })
     .select()
     .single();
-  // Vi bryr oss inte om error här
 }
 
 export async function POST(req: Request) {
@@ -44,7 +43,7 @@ export async function POST(req: Request) {
         const stripeCustomer = session.customer as string | null;
         const userId = (session.client_reference_id as string) ?? null;
 
-        // Koppla stripe_customer_id första gången
+        // Koppla stripe_customer_id på profilen första gången
         if (userId && stripeCustomer) {
           await supabaseAdmin
             .from('profiles')
@@ -73,7 +72,8 @@ export async function POST(req: Request) {
       case 'customer.subscription.created':
       case 'customer.subscription.updated':
       case 'customer.subscription.deleted': {
-        const sub = event.data.object as Stripe.Subscription;
+        // Använd 'any' för properties som typerna inte känner till (t.ex. current_period_end)
+        const sub = event.data.object as any; // Stripe.Subscription i runtime, men typerna saknar vissa fält
         const stripeCustomer = sub.customer as string;
 
         const { data: prof } = await supabaseAdmin
@@ -83,10 +83,13 @@ export async function POST(req: Request) {
           .maybeSingle();
 
         if (prof?.id) {
-          const priceId = sub.items.data[0]?.price?.id ?? null;
-          const periodEnd = sub.current_period_end
-            ? new Date(sub.current_period_end * 1000).toISOString()
-            : null;
+          const priceId: string | null = sub?.items?.data?.[0]?.price?.id ?? null;
+
+          const rawPeriodEnd = sub?.current_period_end; // kan vara number (unix seconds) eller undefined
+          const periodEnd: string | null =
+            typeof rawPeriodEnd === 'number'
+              ? new Date(rawPeriodEnd * 1000).toISOString()
+              : null;
 
           await supabaseAdmin
             .from('user_subscriptions')
@@ -95,7 +98,7 @@ export async function POST(req: Request) {
                 user_id: prof.id,
                 status: sub.status,
                 price_id: priceId ?? undefined,
-                cancel_at_period_end: sub.cancel_at_period_end ?? false,
+                cancel_at_period_end: Boolean(sub?.cancel_at_period_end),
                 current_period_end: periodEnd,
                 updated_at: new Date().toISOString(),
               },
@@ -106,7 +109,7 @@ export async function POST(req: Request) {
       }
 
       default:
-        // Ignorera övriga events
+        // Ignorera andra events
         break;
     }
   } finally {
