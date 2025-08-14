@@ -14,7 +14,7 @@ export default async function Header() {
       <div className="flex items-center gap-3">
         {/* Klickbar ikonlogga */}
         <Link href="/" className="shrink-0" aria-label={`${BRAND.name} home`}>
-          <Image
+          <img
             src="/logo-icon.svg"
             alt={`${BRAND.name} logo`}
             width={32}
