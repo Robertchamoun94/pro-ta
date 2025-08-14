@@ -1,75 +1,93 @@
 // components/HeaderAuth.tsx
-import Link from 'next/link';
-import { cookies } from 'next/headers';
-import { createServerComponentClient } from '@supabase/auth-helpers-nextjs';
-import CreditsBadge from './CreditsBadge';
+import Link from "next/link";
+import { cookies } from "next/headers";
+import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
 
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
 
 export default async function HeaderAuth() {
   const supabase = createServerComponentClient({ cookies });
+
   const {
     data: { session },
   } = await supabase.auth.getSession();
 
+  let credits = 0;
+  if (session?.user?.id) {
+    const { data: c } = await supabase
+      .from("user_credits")
+      .select("credits")
+      .eq("user_id", session.user.id)
+      .maybeSingle();
+    credits = c?.credits ?? 0;
+  }
+
   return (
-    <header className="border-b bg-white">
-      <div className="mx-auto max-w-6xl px-4 py-2">
-        {/* Flex-wrap + gap-y gör att det blir snyggt när det bryter till två rader på mobil */}
-        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-          {/* Vänster sida: logga + Pricing */}
-          <div className="flex min-w-0 items-center gap-4">
-            <Link
-              href="/"
-              className="whitespace-nowrap text-lg font-semibold"
-            >
-              ArcSignals
-            </Link>
+    <header className="sticky top-0 z-40 border-b bg-white/80 backdrop-blur">
+      <div className="mx-auto w-full max-w-6xl px-4 py-3">
+        <nav className="flex flex-wrap items-center justify-between gap-3">
+          {/* Brand */}
+          <Link
+            href="/"
+            className="text-xl font-semibold tracking-tight text-slate-900"
+          >
+            ArcSignals
+          </Link>
+
+          {/* Right group: credits + buttons */}
+          <div className="flex flex-wrap items-center gap-2">
+            {session && (
+              <span
+                className="rounded-full bg-emerald-50 px-3 py-1 text-sm font-medium
+                           text-emerald-700 ring-1 ring-emerald-200"
+                aria-label={`Credits: ${credits}`}
+                title={`Credits: ${credits}`}
+              >
+                Credits: <span className="font-semibold">{credits}</span>
+              </span>
+            )}
+
+            {/* Pricing as a real button, always visible */}
             <Link
               href="/pricing"
-              className="whitespace-nowrap text-sm text-slate-600 hover:text-slate-900"
+              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5
+                         text-sm font-medium text-slate-800 hover:bg-slate-50"
             >
               Pricing
             </Link>
-          </div>
 
-          {/* Höger sida: auth-del */}
-          {session ? (
-            <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-              {/* Kompakt kredit-badge på mobil */}
-              <CreditsBadge />
+            {session ? (
+              <>
+                <Link
+                  href="/dashboard"
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-1.5
+                             text-sm font-medium text-slate-800 hover:bg-slate-50"
+                >
+                  Dashboard
+                </Link>
 
-              {/* Döljer lång text på mycket små skärmar genom fontstorlek + nowrap */}
-              {/* E-post är redan dold på <sm> i din tidigare variant; vill du ha den, lägg till den här: */}
-              {/* <span className="hidden sm:inline text-slate-600 truncate max-w-[12rem]">
-                {session.user.email}
-              </span> */}
-
-              <Link
-                href="/dashboard"
-                className="whitespace-nowrap rounded-md border border-slate-300 px-2 py-1 text-xs hover:bg-slate-50 sm:text-sm"
-              >
-                Dashboard
-              </Link>
-
-              <Link
-                href="/auth/sign-out"
-                className="whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-xs text-white hover:opacity-90 sm:text-sm"
-              >
-                Sign out
-              </Link>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2">
+                {/* Anpassa action/route om du har en annan signout-lösning */}
+                <form action="/auth/signout" method="post">
+                  <button
+                    type="submit"
+                    className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm
+                               font-medium text-white hover:opacity-90"
+                  >
+                    Sign out
+                  </button>
+                </form>
+              </>
+            ) : (
               <Link
                 href="/auth/sign-in"
-                className="whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-xs text-white hover:opacity-90 sm:text-sm"
+                className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm
+                           font-medium text-white hover:opacity-90"
               >
                 Sign in
               </Link>
-            </div>
-          )}
-        </div>
+            )}
+          </div>
+        </nav>
       </div>
     </header>
   );
