@@ -16,13 +16,12 @@ export default function AnalyzeForm({
   const [submitting, setSubmitting] = useState(false);
   const [creditsLeft, setCreditsLeft] = useState<number>(initialCredits);
 
-  const onSubmit = async (e: FormEvent<HTMLFormElement>) => {
+  async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setSubmitting(true);
 
     try {
-      const form = e.currentTarget;
-      const fd = new FormData(form);
+      const fd = new FormData(e.currentTarget);
 
       const res = await fetch('/api/analyze', {
         method: 'POST',
@@ -31,7 +30,7 @@ export default function AnalyzeForm({
 
       if (!res.ok) {
         const msg = await res.text().catch(() => '');
-        alert(msg || 'Checkout error');
+        alert(msg || 'Error generating analysis');
         return;
       }
 
@@ -47,32 +46,75 @@ export default function AnalyzeForm({
       a.remove();
       URL.revokeObjectURL(url);
 
-      // ↓ Uppdatera kredit-banderollen direkt och headern via refresh
+      // Optimistisk kreditminskning + uppdatera header-badge
       setCreditsLeft((c) => Math.max(0, c - 1));
       router.refresh();
     } finally {
       setSubmitting(false);
     }
-  };
+  }
 
   return (
     <>
-      {/* Valfri banner om 0 krediter och ingen aktiv prenumeration */}
       {!hasActiveSubscription && creditsLeft <= 0 && (
         <div className="mb-4 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm">
           You have <strong>0 credits</strong>. You can’t run a new analysis yet,
           but you can still download the result of a running one. When you’re
-          ready, buy more credits.
+          ready, <a className="underline" href="/pricing">buy more credits</a>.
         </div>
       )}
 
-      {/* Behåll din befintliga JSX – byt bara onSubmit */}
-      <form onSubmit={onSubmit}>
-        {/* ... dina inputs/knappar/filuppladdningar ... */}
-        {/* Exempel: en submit-knapp som använder state */}
+      <form onSubmit={onSubmit} className="mt-4 space-y-5">
+        {/* Asset + Price */}
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <label htmlFor="asset" className="block text-sm font-medium">
+              Asset Name
+            </label>
+            <input
+              id="asset"
+              name="asset"
+              placeholder="e.g., BTC/USD or Volvo B"
+              className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-400"
+              required
+            />
+          </div>
+
+          <div>
+            <label htmlFor="price" className="block text-sm font-medium">
+              Current Price
+            </label>
+            <input
+              id="price"
+              name="price"
+              placeholder="e.g., 712.50"
+              className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-400"
+              required
+            />
+          </div>
+        </div>
+
+        {/* Tre bildfält */}
+        <div className="grid gap-4 sm:grid-cols-3">
+          <div className="rounded-lg border border-slate-200 p-3">
+            <div className="text-sm font-medium">1D chart (image)</div>
+            <input type="file" name="chart1d" accept="image/*" className="mt-2 block w-full text-sm" required />
+          </div>
+
+          <div className="rounded-lg border border-slate-200 p-3">
+            <div className="text-sm font-medium">1W chart (image)</div>
+            <input type="file" name="chart1w" accept="image/*" className="mt-2 block w-full text-sm" required />
+          </div>
+
+          <div className="rounded-lg border border-slate-200 p-3">
+            <div className="text-sm font-medium">1M chart (image)</div>
+            <input type="file" name="chart1m" accept="image/*" className="mt-2 block w-full text-sm" required />
+          </div>
+        </div>
+
         <button
           type="submit"
-          disabled={submitting}
+          disabled={submitting || (!hasActiveSubscription && creditsLeft <= 0)}
           className="rounded-lg bg-slate-900 px-4 py-2 font-medium text-white disabled:opacity-60"
         >
           {submitting ? 'Generating…' : 'Generate Analysis (PDF)'}
