@@ -6,10 +6,10 @@ import OpenAI from 'openai';
 import { buildPrompt, type TAJson } from '@/lib/prompt';
 import { renderPdfStructured } from '@/lib/pdf';
 
-import { requireBillingAccess } from '@/lib/billing';      // paywall-gate
-import { supabaseAdmin } from '@/lib/supabaseAdmin';       // för ev. kredit-rollback
+import { requireBillingAccess } from '@/lib/billing';
+import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
-export const runtime = 'nodejs';   // krävs för PDF/Node-APIs
+export const runtime = 'nodejs';
 export const maxDuration = 60;
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -41,29 +41,33 @@ async function toBufAndDataUrl(f?: File | null) {
 
 export async function POST(req: NextRequest) {
   try {
-    // --- AUTH ---
+    // 1) Auth
     const supabase = createRouteHandlerClient({ cookies });
     const {
       data: { session },
     } = await supabase.auth.getSession();
 
     if (!session) {
+      // Vill du också auto-redirecta till login?
+      // return NextResponse.redirect(new URL('/signin?redirect=/dashboard', req.url));
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
     const userId = session.user.id;
 
-    // --- PAYWALL: aktiv sub ELLER dra 1 kredit ---
+    // 2) Paywall: aktiv sub ELLER dra 1 kredit
     const gate = await requireBillingAccess(userId);
     if (!gate.ok) {
-      return NextResponse.json({ error: gate.message }, { status: gate.code });
+      // ➜ Direkt till pricing om ingen plan/kredit
+      const url = new URL('/pricing?upgrade=1', req.url);
+      return NextResponse.redirect(url); // 307 by default
     }
 
-    // Formdata
+    // 3) Läs form
     const form = await req.formData();
     const asset = String(getFirst(form, 'asset') ?? '').trim();
     const price = String(getFirst(form, 'price') ?? '').trim();
     if (!asset || !price) {
-      // Om vi drog en kredit nyss: ge tillbaka 1
+      // rollback 1 kredit om vi nyss drog en
       if (gate.usedCredit) {
         try {
           await supabaseAdmin.rpc('grant_credits', { p_user_id: userId, p_n: 1 });
@@ -72,7 +76,6 @@ export async function POST(req: NextRequest) {
       return new NextResponse('Asset and price are required', { status: 400 });
     }
 
-    // Stöd både nya (chart*) och gamla (img*) fältnamn
     const f1d = getFirst(form, 'chart1d', 'img1d') as File | null;
     const f1w = getFirst(form, 'chart1w', 'img1w') as File | null;
     const f1m = getFirst(form, 'chart1m', 'img1m') as File | null;
@@ -80,18 +83,17 @@ export async function POST(req: NextRequest) {
     const [{ buf: buf1d, url: url1d }, { buf: buf1w, url: url1w }, { buf: buf1m, url: url1m }] =
       await Promise.all([toBufAndDataUrl(f1d), toBufAndDataUrl(f1w), toBufAndDataUrl(f1m)]);
 
-    // Prompt + multimodalt innehåll
+    // 4) OpenAI
     const prompt = buildPrompt(asset, price);
     const userContent: Array<any> = [{ type: 'text', text: prompt }];
     [url1d, url1w, url1m].forEach((u) => u && userContent.push({ type: 'image_url', image_url: { url: u } }));
 
-    // Modellanrop (returnera ENDAST JSON)
     const chat = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       temperature: 0.1,
       messages: [
         { role: 'system', content: 'You return ONLY raw JSON in English that matches the user schema. No markdown.' },
-        // @ts-ignore — multimodal content array
+        // @ts-ignore – multimodal
         { role: 'user', content: userContent },
       ],
     });
@@ -99,7 +101,6 @@ export async function POST(req: NextRequest) {
     const raw = chat.choices?.[0]?.message?.content || '';
     const jsonText = extractJson(raw);
 
-    // Tolkning av JSON (fallback om parsen fallerar)
     let data: TAJson;
     try {
       data = JSON.parse(jsonText) as TAJson;
@@ -121,7 +122,7 @@ export async function POST(req: NextRequest) {
       };
     }
 
-    // Rendera PDF
+    // 5) PDF
     let pdf: Buffer;
     try {
       pdf = await renderPdfStructured({
@@ -129,7 +130,7 @@ export async function POST(req: NextRequest) {
         images: { img1d: buf1d, img1w: buf1w, img1m: buf1m },
       });
     } catch (e) {
-      // Om genereringen faller och vi drog en kredit: återställ 1
+      // rollback kredit om generering faller
       if (gate.usedCredit) {
         try {
           await supabaseAdmin.rpc('grant_credits', { p_user_id: userId, p_n: 1 });
