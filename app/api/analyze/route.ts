@@ -6,8 +6,8 @@ import OpenAI from 'openai';
 import { buildPrompt, type TAJson } from '@/lib/prompt';
 import { renderPdfStructured } from '@/lib/pdf';
 
-import { requireBillingAccess } from '@/lib/billing';      // ⬅️ paywall-gate
-import { supabaseAdmin } from '@/lib/supabaseAdmin';       // ⬅️ för ev. kredit-rollback
+import { requireBillingAccess } from '@/lib/billing';      // paywall-gate
+import { supabaseAdmin } from '@/lib/supabaseAdmin';       // för ev. kredit-rollback
 
 export const runtime = 'nodejs';   // krävs för PDF/Node-APIs
 export const maxDuration = 60;
@@ -15,7 +15,6 @@ export const maxDuration = 60;
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 function extractJson(s: string): string {
-  // Strip ```json ... ``` or ``` ... ```
   const fenced = s.match(/```json([\s\S]*?)```/i);
   if (fenced) return fenced[1].trim();
   const fencedAny = s.match(/```([\s\S]*?)```/);
@@ -23,7 +22,6 @@ function extractJson(s: string): string {
   return s.trim();
 }
 
-// Hjälp: hämta första befintliga fältet bland flera namn
 function getFirst(form: FormData, ...names: string[]): FormDataEntryValue | null {
   for (const n of names) {
     const v = form.get(n);
@@ -32,7 +30,6 @@ function getFirst(form: FormData, ...names: string[]): FormDataEntryValue | null
   return null;
 }
 
-// Konvertera File -> {buf, dataUrl}
 async function toBufAndDataUrl(f?: File | null) {
   if (!f) return { buf: undefined as Buffer | undefined, url: undefined as string | undefined };
   const ab = await f.arrayBuffer();
@@ -44,41 +41,38 @@ async function toBufAndDataUrl(f?: File | null) {
 
 export async function POST(req: NextRequest) {
   try {
-    // --- AUTH: läs session via Supabase-cookie (server-side) ---
+    // --- AUTH ---
     const supabase = createRouteHandlerClient({ cookies });
     const {
       data: { session },
     } = await supabase.auth.getSession();
 
     if (!session) {
-      // API-svar (rekommenderat för programmatisk hantering)
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
-      // eller: return NextResponse.redirect(new URL('/auth/sign-in?redirect=/', req.url));
     }
     const userId = session.user.id;
-    // ----------------------------------------------------------
 
-    // --- PAYWALL: aktiv prenumeration ELLER förbruka 1 kredit ---
-    // (Krediten dras här. Om något går fel senare gör vi rollback +1.)
+    // --- PAYWALL: aktiv sub ELLER dra 1 kredit ---
     const gate = await requireBillingAccess(userId);
     if (!gate.ok) {
       return NextResponse.json({ error: gate.message }, { status: gate.code });
     }
-    // ------------------------------------------------------------
 
     // Formdata
     const form = await req.formData();
     const asset = String(getFirst(form, 'asset') ?? '').trim();
     const price = String(getFirst(form, 'price') ?? '').trim();
     if (!asset || !price) {
-      // Vid valideringsfel: om vi nyss drog en kredit, ge tillbaka 1.
+      // Om vi drog en kredit nyss: ge tillbaka 1
       if (gate.usedCredit) {
-        await supabaseAdmin.rpc('grant_credits', { p_user_id: userId, p_n: 1 }).catch(() => {});
+        try {
+          await supabaseAdmin.rpc('grant_credits', { p_user_id: userId, p_n: 1 });
+        } catch {}
       }
       return new NextResponse('Asset and price are required', { status: 400 });
     }
 
-    // Stöder både nya (chart*) och gamla (img*) fältnamn
+    // Stöd både nya (chart*) och gamla (img*) fältnamn
     const f1d = getFirst(form, 'chart1d', 'img1d') as File | null;
     const f1w = getFirst(form, 'chart1w', 'img1w') as File | null;
     const f1m = getFirst(form, 'chart1m', 'img1m') as File | null;
@@ -135,11 +129,11 @@ export async function POST(req: NextRequest) {
         images: { img1d: buf1d, img1w: buf1w, img1m: buf1m },
       });
     } catch (e) {
-      // Om genereringen faller och vi nyss drog en kredit: återställ 1 kredit
+      // Om genereringen faller och vi drog en kredit: återställ 1
       if (gate.usedCredit) {
-        await supabaseAdmin
-          .rpc('grant_credits', { p_user_id: userId, p_n: 1 })
-          .catch(() => {}); // tysta ev. db-fel här
+        try {
+          await supabaseAdmin.rpc('grant_credits', { p_user_id: userId, p_n: 1 });
+        } catch {}
       }
       throw e;
     }
