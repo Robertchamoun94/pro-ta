@@ -1,14 +1,11 @@
 // components/CreditsBadge.tsx
-// Server component som visar användarens kvarvarande engångskrediter.
-
 import { cookies } from 'next/headers';
 import { createServerComponentClient } from '@supabase/auth-helpers-nextjs';
 
-export const dynamic = 'force-dynamic'; // visa alltid färskt saldo
+export const dynamic = 'force-dynamic';
 
 export default async function CreditsBadge() {
   const supabase = createServerComponentClient({ cookies });
-
   const {
     data: { session },
   } = await supabase.auth.getSession();
@@ -26,7 +23,11 @@ export default async function CreditsBadge() {
   return (
     <span
       className={[
-        'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1',
+        // layout
+        'inline-flex shrink-0 items-center whitespace-nowrap rounded-full ring-1',
+        // storlek responsivt: kompakt på mobil
+        'px-2 py-0.5 text-[11px] leading-4 sm:px-2.5 sm:text-xs',
+        // färger
         credits > 0
           ? 'bg-emerald-50 text-emerald-700 ring-emerald-200'
           : 'bg-slate-100 text-slate-600 ring-slate-200',
