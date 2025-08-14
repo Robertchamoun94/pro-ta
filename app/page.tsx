@@ -43,7 +43,8 @@ export default async function Page() {
 
   return (
     <>
-      <section className="mb-4">
+      {/* Endast flyttad/centrerad tagline */}
+      <section className="mx-auto w-full max-w-3xl mb-4">
         <p className="text-sm text-slate-600">AI-powered technical analysis</p>
       </section>
 
