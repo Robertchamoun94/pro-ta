@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import Image from 'next/image';
+// import Image from 'next/image'; // ej nödvändig när vi använder <img>
 import { supabaseServer } from '@/lib/supabase-server';
 import { BRAND } from '@/lib/config';
 
@@ -15,11 +15,11 @@ export default async function Header() {
         {/* Klickbar ikonlogga */}
         <Link href="/" className="shrink-0" aria-label={`${BRAND.name} home`}>
           <img
-            src="/logo-icon.svg"
+            src="/logo-icon.svg?v=1"
             alt={`${BRAND.name} logo`}
             width={32}
             height={32}
-            priority
+            style={{ display: 'block' }}
           />
         </Link>
 
