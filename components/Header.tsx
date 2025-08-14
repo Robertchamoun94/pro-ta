@@ -12,10 +12,10 @@ export default async function Header() {
   return (
     <header className="mb-8 flex items-center justify-between">
       <div className="flex items-center gap-3">
-        {/* Klickbar logga – ersätter tidigare inline-SVG. */}
+        {/* Klickbar ikonlogga */}
         <Link href="/" className="shrink-0" aria-label={`${BRAND.name} home`}>
           <Image
-            src="/logo-icon.svg"          // lägg din fil i /public/logo.svg (png funkar också)
+            src="/logo-icon.svg"
             alt={`${BRAND.name} logo`}
             width={32}
             height={32}
