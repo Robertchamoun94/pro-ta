@@ -31,6 +31,14 @@ export default async function HeaderAuth() {
             href="/"
             className="text-xl font-semibold tracking-tight text-slate-900"
           >
+            {/* Liten ikon före texten – inga klassändringar, endast inline-stil */}
+            <img
+              src="/logo-icon.svg?v=1"
+              alt="ArcSignals logo"
+              width={24}
+              height={24}
+              style={{ display: "inline-block", verticalAlign: "text-bottom", marginRight: "0.5rem" }}
+            />
             ArcSignals
           </Link>
 
