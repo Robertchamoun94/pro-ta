@@ -15,7 +15,7 @@ export default async function Header() {
         {/* Klickbar logga – ersätter tidigare inline-SVG. */}
         <Link href="/" className="shrink-0" aria-label={`${BRAND.name} home`}>
           <Image
-            src="/logo.svg"          // lägg din fil i /public/logo.svg (png funkar också)
+            src="/logo-icon.svg"          // lägg din fil i /public/logo.svg (png funkar också)
             alt={`${BRAND.name} logo`}
             width={32}
             height={32}
