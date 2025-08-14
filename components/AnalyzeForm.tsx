@@ -16,6 +16,19 @@ export default function AnalyzeForm({
   const [submitting, setSubmitting] = useState(false);
   const [creditsLeft, setCreditsLeft] = useState<number>(initialCredits);
 
+  // filenames to show under upload buttons
+  const [name1d, setName1d] = useState('');
+  const [name1w, setName1w] = useState('');
+  const [name1m, setName1m] = useState('');
+
+  function handleFileName(
+    e: React.ChangeEvent<HTMLInputElement>,
+    setName: (v: string) => void
+  ) {
+    const f = e.target.files?.[0];
+    setName(f ? f.name : '');
+  }
+
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setSubmitting(true);
@@ -34,19 +47,19 @@ export default function AnalyzeForm({
         return;
       }
 
-      // Ladda ner PDF
+      // Download PDF
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url;
       const asset = (fd.get('asset') ?? 'analysis').toString();
+      a.href = url;
       a.download = `${asset.replace(/[^a-z0-9_-]/gi, '_')}_analysis.pdf`;
       document.body.appendChild(a);
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
 
-      // Optimistisk kreditminskning + uppdatera header-badge
+      // Optimistic credit decrement + refresh header badge
       setCreditsLeft((c) => Math.max(0, c - 1));
       router.refresh();
     } finally {
@@ -94,21 +107,75 @@ export default function AnalyzeForm({
           </div>
         </div>
 
-        {/* Tre bildfält */}
+        {/* 1D / 1W / 1M upload sections with EN buttons */}
         <div className="grid gap-4 sm:grid-cols-3">
+          {/* 1D */}
           <div className="rounded-lg border border-slate-200 p-3">
             <div className="text-sm font-medium">1D chart (image)</div>
-            <input type="file" name="chart1d" accept="image/*" className="mt-2 block w-full text-sm" required />
+            <input
+              id="chart1d"
+              name="chart1d"
+              type="file"
+              accept="image/*"
+              className="sr-only"
+              required
+              onChange={(e) => handleFileName(e, setName1d)}
+            />
+            <label
+              htmlFor="chart1d"
+              className="mt-2 inline-flex cursor-pointer items-center rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium hover:bg-slate-50"
+            >
+              Upload image
+            </label>
+            <div className="mt-1 truncate text-xs text-slate-500">
+              {name1d || 'No file selected'}
+            </div>
           </div>
 
+          {/* 1W */}
           <div className="rounded-lg border border-slate-200 p-3">
             <div className="text-sm font-medium">1W chart (image)</div>
-            <input type="file" name="chart1w" accept="image/*" className="mt-2 block w-full text-sm" required />
+            <input
+              id="chart1w"
+              name="chart1w"
+              type="file"
+              accept="image/*"
+              className="sr-only"
+              required
+              onChange={(e) => handleFileName(e, setName1w)}
+            />
+            <label
+              htmlFor="chart1w"
+              className="mt-2 inline-flex cursor-pointer items-center rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium hover:bg-slate-50"
+            >
+              Upload image
+            </label>
+            <div className="mt-1 truncate text-xs text-slate-500">
+              {name1w || 'No file selected'}
+            </div>
           </div>
 
+          {/* 1M */}
           <div className="rounded-lg border border-slate-200 p-3">
             <div className="text-sm font-medium">1M chart (image)</div>
-            <input type="file" name="chart1m" accept="image/*" className="mt-2 block w-full text-sm" required />
+            <input
+              id="chart1m"
+              name="chart1m"
+              type="file"
+              accept="image/*"
+              className="sr-only"
+              required
+              onChange={(e) => handleFileName(e, setName1m)}
+            />
+            <label
+              htmlFor="chart1m"
+              className="mt-2 inline-flex cursor-pointer items-center rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium hover:bg-slate-50"
+            >
+              Upload image
+            </label>
+            <div className="mt-1 truncate text-xs text-slate-500">
+              {name1m || 'No file selected'}
+            </div>
           </div>
         </div>
 
