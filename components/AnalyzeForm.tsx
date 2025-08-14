@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 
 type Props = {
@@ -21,6 +21,10 @@ export default function AnalyzeForm({
   const [name1w, setName1w] = useState('');
   const [name1m, setName1m] = useState('');
 
+  // Download button state (nytt)
+  const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
+  const [downloadName, setDownloadName] = useState<string>('analysis.pdf');
+
   function handleFileName(
     e: React.ChangeEvent<HTMLInputElement>,
     setName: (v: string) => void
@@ -29,11 +33,24 @@ export default function AnalyzeForm({
     setName(f ? f.name : '');
   }
 
+  // Rensa ev. gammal blob-URL (minnesstädning)
+  useEffect(() => {
+    return () => {
+      if (downloadUrl) URL.revokeObjectURL(downloadUrl);
+    };
+  }, [downloadUrl]);
+
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setSubmitting(true);
 
     try {
+      // Rensa ev. tidigare nedladdningslänk
+      if (downloadUrl) {
+        URL.revokeObjectURL(downloadUrl);
+        setDownloadUrl(null);
+      }
+
       const fd = new FormData(e.currentTarget);
 
       const res = await fetch('/api/analyze', {
@@ -47,19 +64,16 @@ export default function AnalyzeForm({
         return;
       }
 
-      // Download PDF
+      // Skapa blob-URL men auto-ladda inte ned
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
       const asset = (fd.get('asset') ?? 'analysis').toString();
-      a.href = url;
-      a.download = `${asset.replace(/[^a-z0-9_-]/gi, '_')}_analysis.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      const fname = `${asset.replace(/[^a-z0-9_-]/gi, '_')}_analysis.pdf`;
 
-      // Optimistic credit decrement + refresh header badge
+      setDownloadUrl(url);
+      setDownloadName(fname);
+
+      // Optimistisk kreditminskning + uppdatera header-badge
       setCreditsLeft((c) => Math.max(0, c - 1));
       router.refresh();
     } finally {
@@ -107,9 +121,8 @@ export default function AnalyzeForm({
           </div>
         </div>
 
-        {/* 1D / 1W / 1M upload sections with EN buttons */}
+        {/* 1D / 1W / 1M upload sections */}
         <div className="grid gap-4 sm:grid-cols-3">
-          {/* 1D */}
           <div className="rounded-lg border border-slate-200 p-3">
             <div className="text-sm font-medium">1D chart (image)</div>
             <input
@@ -132,7 +145,6 @@ export default function AnalyzeForm({
             </div>
           </div>
 
-          {/* 1W */}
           <div className="rounded-lg border border-slate-200 p-3">
             <div className="text-sm font-medium">1W chart (image)</div>
             <input
@@ -155,7 +167,6 @@ export default function AnalyzeForm({
             </div>
           </div>
 
-          {/* 1M */}
           <div className="rounded-lg border border-slate-200 p-3">
             <div className="text-sm font-medium">1M chart (image)</div>
             <input
@@ -179,13 +190,26 @@ export default function AnalyzeForm({
           </div>
         </div>
 
-        <button
-          type="submit"
-          disabled={submitting || (!hasActiveSubscription && creditsLeft <= 0)}
-          className="rounded-lg bg-slate-900 px-4 py-2 font-medium text-white disabled:opacity-60"
-        >
-          {submitting ? 'Generating…' : 'Generate Analysis (PDF)'}
-        </button>
+        {/* Actions: Generate + Download PDF */}
+        <div className="flex items-center gap-3">
+          <button
+            type="submit"
+            disabled={submitting || (!hasActiveSubscription && creditsLeft <= 0)}
+            className="rounded-lg bg-slate-900 px-4 py-2 font-medium text-white disabled:opacity-60"
+          >
+            {submitting ? 'Generating…' : 'Generate Analysis (PDF)'}
+          </button>
+
+          {downloadUrl && (
+            <a
+              href={downloadUrl}
+              download={downloadName}
+              className="rounded-lg border border-slate-300 bg-white px-4 py-2 font-medium hover:bg-slate-50"
+            >
+              Download PDF
+            </a>
+          )}
+        </div>
       </form>
     </>
   );
