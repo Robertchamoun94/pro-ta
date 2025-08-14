@@ -1,10 +1,49 @@
+// app/page.tsx
+import { cookies } from 'next/headers';
+import { createServerComponentClient } from '@supabase/auth-helpers-nextjs';
 import AnalyzeForm from '@/components/AnalyzeForm';
 
-export default function Page() {
+export const dynamic = 'force-dynamic';
+
+export default async function Page() {
+  const supabase = createServerComponentClient({ cookies });
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  let credits = 0;
+  let hasActiveSubscription = false;
+
+  if (session?.user?.id) {
+    const userId = session.user.id;
+
+    // Hämta krediter
+    const { data: c } = await supabase
+      .from('user_credits')
+      .select('credits')
+      .eq('user_id', userId)
+      .maybeSingle();
+    credits = c?.credits ?? 0;
+
+    // Hämta sub-status
+    const { data: sub } = await supabase
+      .from('user_subscriptions')
+      .select('status,current_period_end')
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (sub) {
+      const allowed = ['active', 'trialing', 'past_due'];
+      const notExpired =
+        !sub.current_period_end ||
+        new Date(sub.current_period_end).getTime() > Date.now();
+      hasActiveSubscription = allowed.includes(sub.status ?? '') && notExpired;
+    }
+  }
+
   return (
     <>
       <section className="mb-4">
-        {/* Endast den mindre taglinen */}
         <p className="text-sm text-slate-600">AI-powered technical analysis</p>
       </section>
 
@@ -14,7 +53,11 @@ export default function Page() {
           Enter the asset, current price, and upload 1D/1W/1M charts. We&apos;ll generate a complete PDF report.
         </p>
 
-        <AnalyzeForm />
+        {/* Skicka ner initiala props – AnalyzeForm hanterar bannern/gating client-side */}
+        <AnalyzeForm
+          initialCredits={credits}
+          hasActiveSubscription={hasActiveSubscription}
+        />
       </section>
     </>
   );
