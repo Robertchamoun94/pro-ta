@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 
 type Props = {
@@ -28,6 +28,10 @@ export default function AnalyzeForm({
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
   const [downloadName, setDownloadName] = useState<string>('analysis.pdf');
 
+  // Progressbar (nytt — påverkar inte befintlig analyslogik)
+  const [progress, setProgress] = useState<number>(0);
+  const progressTimerRef = useRef<number | null>(null);
+
   function handleFileName(
     e: React.ChangeEvent<HTMLInputElement>,
     setName: (v: string) => void
@@ -40,12 +44,29 @@ export default function AnalyzeForm({
   useEffect(() => {
     return () => {
       if (downloadUrl) URL.revokeObjectURL(downloadUrl);
+      if (progressTimerRef.current) {
+        window.clearInterval(progressTimerRef.current);
+        progressTimerRef.current = null;
+      }
     };
   }, [downloadUrl]);
 
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setSubmitting(true);
+
+    // Starta progress-UI — tickar upp till 90% tills jobbet är klart
+    setProgress(1);
+    if (progressTimerRef.current) {
+      window.clearInterval(progressTimerRef.current);
+      progressTimerRef.current = null;
+    }
+    progressTimerRef.current = window.setInterval(() => {
+      setProgress((p) => {
+        const inc = p < 70 ? 1.6 : p < 85 ? 0.8 : 0.25;
+        return Math.min(p + inc, 90);
+      });
+    }, 120);
 
     try {
       // Rensa ev. tidigare nedladdningslänk
@@ -80,7 +101,16 @@ export default function AnalyzeForm({
       setCreditsLeft((c) => Math.max(0, c - 1));
       router.refresh();
     } finally {
-      setSubmitting(false);
+      // Avsluta progressen snyggt
+      if (progressTimerRef.current) {
+        window.clearInterval(progressTimerRef.current);
+        progressTimerRef.current = null;
+      }
+      setProgress(100);
+      setTimeout(() => {
+        setSubmitting(false);
+        setProgress(0);
+      }, 400);
     }
   }
 
@@ -200,7 +230,7 @@ export default function AnalyzeForm({
             disabled={submitting || (!hasActiveSubscription && creditsLeft <= 0)}
             className="rounded-lg bg-slate-900 px-4 py-2 font-medium text-white disabled:opacity-60"
           >
-            {submitting ? 'Generating…' : 'Generate Analysis (PDF)'}
+            {submitting ? 'Generating…' : 'Generate Analysis'}
           </button>
 
           {downloadUrl && (
@@ -213,6 +243,21 @@ export default function AnalyzeForm({
             </a>
           )}
         </div>
+
+        {/* Progressbar (visas bara under körning) */}
+        {submitting && (
+          <div className="mt-3" aria-live="polite">
+            <div className="mb-1 text-sm text-gray-600">
+              Analyzing charts… {Math.floor(progress)}%
+            </div>
+            <div className="h-2 w-full rounded bg-gray-200">
+              <div
+                className="h-2 rounded bg-emerald-500 transition-all"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+          </div>
+        )}
       </form>
     </>
   );
