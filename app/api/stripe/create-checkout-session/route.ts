@@ -1,83 +1,87 @@
 // app/api/stripe/create-checkout-session/route.ts
-export const runtime = 'nodejs';
+export const runtime = "nodejs";
 
-import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
-import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
-import Stripe from 'stripe';
-import { stripe } from '@/lib/stripe';
-import { PRICES, SITE_URL } from '@/lib/stripe';
+import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
+import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
+import { stripe } from "@/lib/stripe";
+import { PRICES, SITE_URL } from "@/lib/stripe";
 
-type Plan = 'ONE_TIME' | 'MONTHLY' | 'YEARLY';
+type Plan = "ONE_TIME" | "MONTHLY" | "YEARLY";
 
 export async function POST(req: Request) {
-  // 1) Måste vara inloggad
-  const supabase = createRouteHandlerClient({ cookies });
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (!session) {
-    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
-  }
-  const user = session.user;
-
-  // 2) Läs vald plan
-  let body: any;
   try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ error: 'Bad JSON' }, { status: 400 });
-  }
-  const plan: Plan = body?.plan;
-  if (!plan) {
-    return NextResponse.json({ error: 'Missing plan' }, { status: 400 });
-  }
+    const supabase = createRouteHandlerClient({ cookies });
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
 
-  // 3) Gemensamma parametrar för alla sessioner
-  const base = {
-    // ←← VIKTIGT: dessa två fält kopplar köpet till din användare
-    client_reference_id: user.id,                 // <- här!
-    customer_email: user.email ?? undefined,      // <- här!
-
-    success_url: `${SITE_URL}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${SITE_URL}/pricing?canceled=1`,
-  };
-
-  let params: Stripe.Checkout.SessionCreateParams;
-
-  switch (plan) {
-    case 'ONE_TIME': {
-      params = {
-        ...base,
-        mode: 'payment',
-        payment_method_types: ['card'],
-        line_items: [{ price: PRICES.ONE_TIME, quantity: 1 }],
-      };
-      break;
+    if (!session?.user) {
+      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
     }
-    case 'MONTHLY': {
-      params = {
-        ...base,
-        mode: 'subscription',
-        line_items: [{ price: PRICES.MONTHLY, quantity: 1 }],
-        allow_promotion_codes: true,
-      };
-      break;
-    }
-    case 'YEARLY': {
-      params = {
-        ...base,
-        mode: 'subscription',
-        line_items: [{ price: PRICES.YEARLY, quantity: 1 }],
-        allow_promotion_codes: true,
-      };
-      break;
-    }
-    default:
-      return NextResponse.json({ error: 'Unknown plan' }, { status: 400 });
-  }
 
-  // 4) Skapa session och returnera URL
-  const sessionCheckout = await stripe.checkout.sessions.create(params);
-  return NextResponse.json({ url: sessionCheckout.url });
+    const userId = session.user.id;
+    const userEmail = session.user.email ?? undefined;
+
+    const body = (await req.json().catch(() => ({}))) as { plan?: Plan };
+    const plan = body?.plan as Plan;
+
+    if (!plan) {
+      return NextResponse.json({ error: "Missing plan" }, { status: 400 });
+    }
+
+    // vart Stripe ska skicka användaren efter checkout
+    const successUrl = `${SITE_URL}/?paid=1&session_id={CHECKOUT_SESSION_ID}`;
+    const cancelUrl = `${SITE_URL}/pricing?canceled=1`;
+
+    // gemensamma fält
+    const base: any = {
+      success_url: successUrl,
+      cancel_url: cancelUrl,
+      client_reference_id: userId,     // <- viktigt för att kunna knyta köp till användaren
+      customer_email: userEmail,       // valfritt men trevligt för autofill
+    };
+
+    let sessionStripe;
+
+    switch (plan) {
+      case "ONE_TIME": {
+        sessionStripe = await stripe.checkout.sessions.create({
+          ...base,
+          mode: "payment",
+          line_items: [{ price: PRICES.ONE_TIME, quantity: 1 }],
+        });
+        break;
+      }
+
+      case "MONTHLY": {
+        sessionStripe = await stripe.checkout.sessions.create({
+          ...base,
+          mode: "subscription",
+          line_items: [{ price: PRICES.MONTHLY, quantity: 1 }],
+        });
+        break;
+      }
+
+      case "YEARLY": {
+        sessionStripe = await stripe.checkout.sessions.create({
+          ...base,
+          mode: "subscription",
+          line_items: [{ price: PRICES.YEARLY, quantity: 1 }],
+        });
+        break;
+      }
+
+      default:
+        return NextResponse.json({ error: "Invalid plan" }, { status: 400 });
+    }
+
+    return NextResponse.json({ url: sessionStripe.url });
+  } catch (err: any) {
+    console.error("create-checkout-session error:", err);
+    return NextResponse.json(
+      { error: err?.message ?? "Checkout error" },
+      { status: 500 },
+    );
+  }
 }
