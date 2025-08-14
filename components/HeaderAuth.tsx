@@ -1,26 +1,63 @@
+// components/HeaderAuth.tsx
 import Link from 'next/link';
 import { cookies } from 'next/headers';
 import { createServerComponentClient } from '@supabase/auth-helpers-nextjs';
-import LogoMark from './LogoMark';
-import NavBar from './NavBar';
+import CreditsBadge from './CreditsBadge';
+
+export const dynamic = 'force-dynamic';
 
 export default async function HeaderAuth() {
   const supabase = createServerComponentClient({ cookies });
   const {
     data: { session },
   } = await supabase.auth.getSession();
-  const email = session?.user?.email ?? null;
 
   return (
-    <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/90 backdrop-blur shadow-sm">
-      <div className="mx-auto max-w-6xl h-14 px-4 flex items-center justify-between">
-        <Link href="/" className="flex items-center gap-3">
-          <LogoMark className="h-6 w-6" />
-          <div className="font-semibold tracking-tight text-slate-900">ArcSignals</div>
-        </Link>
+    <header className="border-b bg-white">
+      <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
+        <div className="flex items-center gap-6">
+          <Link href="/" className="text-lg font-semibold">
+            ArcSignals
+          </Link>
+          <Link
+            href="/pricing"
+            className="text-sm text-slate-600 hover:text-slate-900"
+          >
+            Pricing
+          </Link>
+        </div>
 
-        {/* Desktop: inline nav  •  Mobile: compakt meny */}
-        <NavBar authed={!!session} email={email} />
+        {session ? (
+          <div className="flex items-center gap-3 text-sm">
+            {/* SALDO-BADGE */}
+            <CreditsBadge />
+
+            <span className="hidden sm:inline text-slate-600">
+              Signed in as <strong>{session.user.email}</strong>
+            </span>
+            <Link
+              href="/dashboard"
+              className="rounded-md border border-slate-300 px-2 py-1 hover:bg-slate-50"
+            >
+              Dashboard
+            </Link>
+            <Link
+              href="/auth/sign-out"
+              className="rounded-md bg-slate-900 px-2 py-1 text-white hover:opacity-90"
+            >
+              Sign out
+            </Link>
+          </div>
+        ) : (
+          <div className="flex items-center gap-3 text-sm">
+            <Link
+              href="/auth/sign-in"
+              className="rounded-md bg-slate-900 px-2 py-1 text-white hover:opacity-90"
+            >
+              Sign in
+            </Link>
+          </div>
+        )}
       </div>
     </header>
   );
