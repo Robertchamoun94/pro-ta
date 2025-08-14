@@ -41,17 +41,13 @@ export default async function Page() {
     }
   }
 
+  const isLoggedIn = Boolean(session?.user?.id);
+
   return (
     <>
-      {/* Tagline linjerad med kortet + grön online-prick */}
+      {/* Endast flyttad/centrerad tagline */}
       <section className="mx-auto w-full max-w-3xl mb-4">
-        <div className="flex items-center gap-2 text-sm text-slate-600">
-          <span className="relative flex h-2.5 w-2.5">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-            <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500" />
-          </span>
-          <span>AI-powered technical analysis</span>
-        </div>
+        <p className="text-sm text-slate-600">AI-powered technical analysis</p>
       </section>
 
       <section className="mx-auto w-full max-w-3xl rounded-2xl border border-slate-200 bg-white p-5 sm:p-6 shadow-sm">
@@ -64,6 +60,7 @@ export default async function Page() {
         <AnalyzeForm
           initialCredits={credits}
           hasActiveSubscription={hasActiveSubscription}
+          isLoggedIn={isLoggedIn}
         />
       </section>
     </>

@@ -6,11 +6,14 @@ import { useRouter } from 'next/navigation';
 type Props = {
   initialCredits?: number;
   hasActiveSubscription?: boolean;
+  // Ny prop: används för att inte visa 0-credits-bannern när man är utloggad
+  isLoggedIn?: boolean;
 };
 
 export default function AnalyzeForm({
   initialCredits = 0,
   hasActiveSubscription = false,
+  isLoggedIn = false,
 }: Props) {
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
@@ -83,7 +86,7 @@ export default function AnalyzeForm({
 
   return (
     <>
-      {!hasActiveSubscription && creditsLeft <= 0 && (
+      {isLoggedIn && !hasActiveSubscription && creditsLeft <= 0 && (
         <div className="mb-4 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm">
           You have <strong>0 credits</strong>. You can’t run a new analysis yet,
           but you can still download the result of a running one. When you’re
