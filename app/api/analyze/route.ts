@@ -1,3 +1,4 @@
+// app/api/analyze/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
@@ -5,7 +6,10 @@ import OpenAI from 'openai';
 import { buildPrompt, type TAJson } from '@/lib/prompt';
 import { renderPdfStructured } from '@/lib/pdf';
 
-export const runtime = 'nodejs';     // krävs för PDF/Node-APIs
+import { requireBillingAccess } from '@/lib/billing';      // ⬅️ paywall-gate
+import { supabaseAdmin } from '@/lib/supabaseAdmin';       // ⬅️ för ev. kredit-rollback
+
+export const runtime = 'nodejs';   // krävs för PDF/Node-APIs
 export const maxDuration = 60;
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -47,17 +51,30 @@ export async function POST(req: NextRequest) {
     } = await supabase.auth.getSession();
 
     if (!session) {
-      // Redirecta till sign-in om ej inloggad
-      return NextResponse.redirect(new URL('/auth/sign-in?redirect=/', req.url));
-      // Alternativ: return NextResponse.json({ error: 'Login required' }, { status: 401 });
+      // API-svar (rekommenderat för programmatisk hantering)
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+      // eller: return NextResponse.redirect(new URL('/auth/sign-in?redirect=/', req.url));
     }
+    const userId = session.user.id;
     // ----------------------------------------------------------
+
+    // --- PAYWALL: aktiv prenumeration ELLER förbruka 1 kredit ---
+    // (Krediten dras här. Om något går fel senare gör vi rollback +1.)
+    const gate = await requireBillingAccess(userId);
+    if (!gate.ok) {
+      return NextResponse.json({ error: gate.message }, { status: gate.code });
+    }
+    // ------------------------------------------------------------
 
     // Formdata
     const form = await req.formData();
     const asset = String(getFirst(form, 'asset') ?? '').trim();
     const price = String(getFirst(form, 'price') ?? '').trim();
     if (!asset || !price) {
+      // Vid valideringsfel: om vi nyss drog en kredit, ge tillbaka 1.
+      if (gate.usedCredit) {
+        await supabaseAdmin.rpc('grant_credits', { p_user_id: userId, p_n: 1 }).catch(() => {});
+      }
       return new NextResponse('Asset and price are required', { status: 400 });
     }
 
@@ -111,10 +128,21 @@ export async function POST(req: NextRequest) {
     }
 
     // Rendera PDF
-    const pdf = await renderPdfStructured({
-      data,
-      images: { img1d: buf1d, img1w: buf1w, img1m: buf1m },
-    });
+    let pdf: Buffer;
+    try {
+      pdf = await renderPdfStructured({
+        data,
+        images: { img1d: buf1d, img1w: buf1w, img1m: buf1m },
+      });
+    } catch (e) {
+      // Om genereringen faller och vi nyss drog en kredit: återställ 1 kredit
+      if (gate.usedCredit) {
+        await supabaseAdmin
+          .rpc('grant_credits', { p_user_id: userId, p_n: 1 })
+          .catch(() => {}); // tysta ev. db-fel här
+      }
+      throw e;
+    }
 
     return new NextResponse(pdf, {
       headers: {
