@@ -4,10 +4,16 @@ import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { createServerComponentClient } from '@supabase/auth-helpers-nextjs';
+import { stripe } from '@/lib/stripe'; // ← används endast vid sista-fallback
 
 type PlanType = 'free' | 'single' | 'monthly' | 'yearly' | null;
 type PlanStatus = 'active' | 'canceled' | 'incomplete' | 'trialing' | null;
-type Profile = { plan_type: PlanType; plan_status: PlanStatus; current_period_end: string | null };
+type Profile = {
+  plan_type: PlanType;
+  plan_status: PlanStatus;
+  current_period_end: string | null;
+  stripe_customer_id?: string | null; // ← för SSR-fallback
+};
 
 function formatPlan(plan: PlanType): string {
   switch (plan) {
@@ -79,12 +85,81 @@ export default async function DashboardPage() {
   try {
     const { data } = await supabase
       .from('profiles')
-      .select('plan_type, plan_status, current_period_end')
+      .select('plan_type, plan_status, current_period_end, stripe_customer_id') // ← lägg till customer-id
       .eq('id', session!.user.id)
       .maybeSingle();
     profile = (data as Profile) ?? null;
   } catch {
     profile = null;
+  }
+
+  /**
+   * 🔒 Sista-säkerhets-fallback:
+   * Om användaren är ACTIVE men current_period_end saknas,
+   * hämta sub från Stripe med stripe_customer_id och fyll datumet (samt skriv tillbaka).
+   * Detta hanterar ev. race/leveransordning i webhooks och gör att UI:n alltid visar datum direkt.
+   */
+  if (
+    profile?.plan_status === 'active' &&
+    !profile.current_period_end &&
+    profile.stripe_customer_id
+  ) {
+    try {
+      // Hämta aktiv sub för kunden
+      const subs = await stripe.subscriptions.list({
+        customer: profile.stripe_customer_id,
+        status: 'active',
+        limit: 1,
+      });
+      const sub = subs.data[0];
+
+      let nextEndISO: string | null = null;
+      let planType: PlanType = profile.plan_type;
+
+      if (sub) {
+        if (typeof (sub as any).current_period_end === 'number') {
+          nextEndISO = new Date((sub as any).current_period_end * 1000).toISOString();
+        } else {
+          // Beräkna från start + interval om Stripe inte skickat current_period_end än
+          const start = (sub as any).current_period_start as number | undefined;
+          const interval = sub.items?.data?.[0]?.price?.recurring?.interval;
+          if (start && interval) {
+            const d = new Date(start * 1000);
+            if (interval === 'year') d.setUTCFullYear(d.getUTCFullYear() + 1);
+            else d.setUTCMonth(d.getUTCMonth() + 1);
+            nextEndISO = d.toISOString();
+          }
+        }
+
+        // Sätt planType utifrån sub:en om det saknas/fel
+        const interval = sub.items?.data?.[0]?.price?.recurring?.interval;
+        if (!planType || planType === 'free') {
+          planType = interval === 'year' ? 'yearly' : 'monthly';
+        }
+      }
+
+      if (nextEndISO) {
+        // Skriv tillbaka till profiles för att hålla DB synkad
+        await supabase
+          .from('profiles')
+          .update({
+            current_period_end: nextEndISO,
+            plan_type: planType ?? profile.plan_type,
+            plan_status: 'active',
+          })
+          .eq('id', session!.user.id);
+
+        // Uppdatera lokalt så UI visar datum direkt
+        profile = {
+          ...profile,
+          current_period_end: nextEndISO,
+          plan_type: planType ?? profile.plan_type,
+          plan_status: 'active',
+        };
+      }
+    } catch {
+      // Tyst – fallback är best-effort för att säkra UI; webhooks fyller vanligtvis snart ändå.
+    }
   }
 
   const { label: planLabel, subline } = getPlanDisplay(profile);
