@@ -6,25 +6,20 @@ import Stripe from 'stripe';
 import { stripe } from '@/lib/stripe';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
-/** Hjälpare: idempotenslogg – ignorera ev. fel (t.ex. unique-violation) */
 async function markProcessed(id: string) {
   await supabaseAdmin.from('stripe_events').insert({ id }).select().single();
 }
 
-/** Hjälpare: mappa Stripe Subscription → vår plan_type */
 function mapPlanType(sub: Stripe.Subscription): 'monthly' | 'yearly' {
   const interval = sub.items?.data?.[0]?.price?.recurring?.interval;
   return interval === 'year' ? 'yearly' : 'monthly';
 }
 
-/** Hjälpare: uppdatera profiles med plan/status/period_end */
 async function updateProfileFromSubscription(
   userId: string,
   sub: Stripe.Subscription | any
 ) {
   const plan_type = mapPlanType(sub as Stripe.Subscription);
-
-  // TS-typerna saknar current_period_end – läs via any
   const rawPeriodEnd = (sub as any)?.current_period_end;
   const current_period_end =
     typeof rawPeriodEnd === 'number'
@@ -37,15 +32,14 @@ async function updateProfileFromSubscription(
   await supabaseAdmin
     .from('profiles')
     .update({
-      plan_type,                                   // 'monthly' | 'yearly'
-      plan_status: ((sub as any).status as any) ?? null, // 'active' | 'trialing' | ...
+      plan_type,
+      plan_status: ((sub as any).status as any) ?? null,
       current_period_end,
       stripe_customer_id: stripeCustomerId,
     })
     .eq('id', userId);
 }
 
-/** Hjälpare: hitta user_id via stripe_customer_id */
 async function findUserIdByCustomerId(customerId: string): Promise<string | null> {
   const { data } = await supabaseAdmin
     .from('profiles')
@@ -53,6 +47,24 @@ async function findUserIdByCustomerId(customerId: string): Promise<string | null
     .eq('stripe_customer_id', customerId)
     .maybeSingle();
   return data?.id ?? null;
+}
+
+// 🆕 Fallback: hitta användare via kundens e-post i Stripe
+async function findUserIdByCustomerEmail(customerId: string): Promise<string | null> {
+  try {
+    const customer = await stripe.customers.retrieve(customerId);
+    if (customer && !('deleted' in customer) && typeof customer.email === 'string') {
+      const { data } = await supabaseAdmin
+        .from('auth.users')
+        .select('id')
+        .eq('email', customer.email)
+        .maybeSingle();
+      return data?.id ?? null;
+    }
+  } catch (err) {
+    console.error('Error fetching customer by email fallback:', err);
+  }
+  return null;
 }
 
 export async function POST(req: Request) {
@@ -68,7 +80,6 @@ export async function POST(req: Request) {
     return new NextResponse(`Webhook signature error: ${err.message}`, { status: 400 });
   }
 
-  // Har vi redan processat detta event?
   const { data: seen } = await supabaseAdmin
     .from('stripe_events')
     .select('id')
@@ -81,13 +92,10 @@ export async function POST(req: Request) {
       case 'checkout.session.completed': {
         const session = event.data.object as Stripe.Checkout.Session;
         const stripeCustomer = (session.customer as string) ?? null;
-
-        // 🎯 Identifiera användare – metadata.user_id (steg 1) eller client_reference_id (din befintliga)
         const userIdFromMeta = (session.metadata?.user_id as string) || null;
         const userIdFromClientRef = (session.client_reference_id as string) || null;
         const resolvedUserId = userIdFromMeta || userIdFromClientRef || null;
 
-        // Koppla stripe_customer_id på profilen första gången
         if (resolvedUserId && stripeCustomer) {
           await supabaseAdmin
             .from('profiles')
@@ -95,7 +103,6 @@ export async function POST(req: Request) {
             .eq('id', resolvedUserId);
         }
 
-        // Engångsköp ($5) → ge +1 kredit (oförändrat)
         if (session.mode === 'payment' && session.payment_status === 'paid') {
           let userId = resolvedUserId;
           if (!userId && stripeCustomer) {
@@ -106,10 +113,8 @@ export async function POST(req: Request) {
           }
         }
 
-        // Prenumeration → uppdatera profiles direkt
         if (session.mode === 'subscription' && session.subscription) {
           const sub = await stripe.subscriptions.retrieve(session.subscription as string);
-
           let userId = resolvedUserId;
           if (!userId && stripeCustomer) userId = await findUserIdByCustomerId(stripeCustomer);
           if (userId) {
@@ -122,17 +127,20 @@ export async function POST(req: Request) {
       case 'customer.subscription.created':
       case 'customer.subscription.updated':
       case 'customer.subscription.deleted': {
-        // 'any' för att läsa fält som inte finns i TS-typen (current_period_end)
         const sub: any = event.data.object as any;
         const stripeCustomer = sub.customer as string;
 
-        // Hitta användaren
         let userId =
-          (sub.metadata?.user_id as string) || (await findUserIdByCustomerId(stripeCustomer));
+          (sub.metadata?.user_id as string) ||
+          (await findUserIdByCustomerId(stripeCustomer));
 
-        // Uppdatera user_subscriptions (din befintliga logik)
+        // 🆕 Fallback om stripe_customer_id saknas
+        if (!userId && stripeCustomer) {
+          userId = await findUserIdByCustomerEmail(stripeCustomer);
+        }
+
         const priceId: string | null = sub?.items?.data?.[0]?.price?.id ?? null;
-        const rawPeriodEnd = sub?.current_period_end; // unix seconds
+        const rawPeriodEnd = sub?.current_period_end;
         const periodEnd: string | null =
           typeof rawPeriodEnd === 'number' ? new Date(rawPeriodEnd * 1000).toISOString() : null;
 
@@ -151,11 +159,9 @@ export async function POST(req: Request) {
               { onConflict: 'user_id' }
             );
 
-          // 🔄 Spegla även till profiles så Dashboard visar rätt
           if (event.type !== 'customer.subscription.deleted') {
             await updateProfileFromSubscription(userId, sub);
           } else {
-            // ⛳️ ÄNDRING: sätt profilen till Free när abonnemanget är *verkligen* avslutat
             await supabaseAdmin
               .from('profiles')
               .update({
@@ -170,7 +176,6 @@ export async function POST(req: Request) {
       }
 
       default:
-        // Ignorera andra events
         break;
     }
   } finally {
