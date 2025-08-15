@@ -175,8 +175,9 @@ export async function POST(req: Request) {
         break;
       }
 
-      // Synka current_period_end vid första betalning & förnyelser
-      case 'invoice.payment_succeeded': {
+      // Synka current_period_end vid betalningar/förnyelser (0 kr eller >0 kr)
+      case 'invoice.payment_succeeded':
+      case 'invoice.paid': {
         const inv: any = event.data.object as any;
 
         // Hämta subscription-id & customer-id robust över olika payloads/TS-versioner
@@ -208,7 +209,7 @@ export async function POST(req: Request) {
               await updateProfileFromSubscription(userId, sub);
               updated = true;
             } catch (e) {
-              console.error('invoice.payment_succeeded retrieve sub error:', e);
+              console.error('invoice.* retrieve sub error:', e);
             }
           }
 
@@ -224,7 +225,7 @@ export async function POST(req: Request) {
                 ? invoiceEndUnix
                 : null;
 
-            // interval → bestäm plan_type (month/year). Hämta från line, annars 'monthly' som default.
+            // interval → bestäm plan_type (month/year). Hämta från line, annars 'monthly'.
             const interval: string | undefined =
               line?.price?.recurring?.interval ??
               inv?.lines?.data?.[0]?.price?.recurring?.interval;
