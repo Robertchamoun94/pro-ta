@@ -6,13 +6,46 @@ import Stripe from 'stripe';
 import { stripe } from '@/lib/stripe';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
+/** Hjälpare: idempotenslogg – ignorera ev. fel (t.ex. unique-violation) */
 async function markProcessed(id: string) {
-  // Idempotenslogg – ignorera ev. fel (t.ex. unique-violation)
+  await supabaseAdmin.from('stripe_events').insert({ id }).select().single();
+}
+
+/** Hjälpare: mappa Stripe Subscription → vår plan_type */
+function mapPlanType(sub: Stripe.Subscription): 'monthly' | 'yearly' {
+  const interval = sub.items?.data?.[0]?.price?.recurring?.interval;
+  return interval === 'year' ? 'yearly' : 'monthly';
+}
+
+/** Hjälpare: uppdatera profiles med plan/status/period_end */
+async function updateProfileFromSubscription(
+  userId: string,
+  sub: Stripe.Subscription
+) {
+  const plan_type = mapPlanType(sub);
+  const current_period_end =
+    sub.current_period_end ? new Date(sub.current_period_end * 1000).toISOString() : null;
+
   await supabaseAdmin
-    .from('stripe_events')
-    .insert({ id })
-    .select()
-    .single();
+    .from('profiles')
+    .update({
+      plan_type,                             // 'monthly' | 'yearly'
+      plan_status: (sub.status as any) ?? null, // 'active' | 'trialing' | ...
+      current_period_end,
+      stripe_customer_id:
+        typeof sub.customer === 'string' ? (sub.customer as string) : null,
+    })
+    .eq('id', userId);
+}
+
+/** Hjälpare: hitta user_id via stripe_customer_id */
+async function findUserIdByCustomerId(customerId: string): Promise<string | null> {
+  const { data } = await supabaseAdmin
+    .from('profiles')
+    .select('id')
+    .eq('stripe_customer_id', customerId)
+    .maybeSingle();
+  return data?.id ?? null;
 }
 
 export async function POST(req: Request) {
@@ -40,30 +73,41 @@ export async function POST(req: Request) {
     switch (event.type) {
       case 'checkout.session.completed': {
         const session = event.data.object as Stripe.Checkout.Session;
-        const stripeCustomer = session.customer as string | null;
-        const userId = (session.client_reference_id as string) ?? null;
+        const stripeCustomer = (session.customer as string) ?? null;
+
+        // 🧭 Identifiera användare – metadata.user_id (steg 1) eller client_reference_id (din befintliga)
+        const userIdFromMeta = (session.metadata?.user_id as string) || null;
+        const userIdFromClientRef = (session.client_reference_id as string) || null;
+        const resolvedUserId = userIdFromMeta || userIdFromClientRef || null;
 
         // Koppla stripe_customer_id på profilen första gången
-        if (userId && stripeCustomer) {
+        if (resolvedUserId && stripeCustomer) {
           await supabaseAdmin
             .from('profiles')
             .update({ stripe_customer_id: stripeCustomer })
-            .eq('id', userId);
+            .eq('id', resolvedUserId);
         }
 
-        // Engångsköp ($5) → ge +1 kredit
+        // Engångsköp ($5) → ge +1 kredit (oförändrat)
         if (session.mode === 'payment' && session.payment_status === 'paid') {
-          let resolvedUserId = userId;
-          if (!resolvedUserId && stripeCustomer) {
-            const { data: prof } = await supabaseAdmin
-              .from('profiles')
-              .select('id')
-              .eq('stripe_customer_id', stripeCustomer)
-              .maybeSingle();
-            resolvedUserId = prof?.id ?? null;
+          let userId = resolvedUserId;
+          if (!userId && stripeCustomer) {
+            userId = await findUserIdByCustomerId(stripeCustomer);
           }
-          if (resolvedUserId) {
-            await supabaseAdmin.rpc('grant_credits', { p_user_id: resolvedUserId, p_n: 1 });
+          if (userId) {
+            await supabaseAdmin.rpc('grant_credits', { p_user_id: userId, p_n: 1 });
+          }
+        }
+
+        // Prenumeration → uppdatera profiles direkt
+        if (session.mode === 'subscription' && session.subscription) {
+          const sub = await stripe.subscriptions.retrieve(session.subscription as string);
+
+          // Försök uppdatera via säker user-id; annars via kund-id
+          let userId = resolvedUserId;
+          if (!userId && stripeCustomer) userId = await findUserIdByCustomerId(stripeCustomer);
+          if (userId) {
+            await updateProfileFromSubscription(userId, sub);
           }
         }
         break;
@@ -72,30 +116,26 @@ export async function POST(req: Request) {
       case 'customer.subscription.created':
       case 'customer.subscription.updated':
       case 'customer.subscription.deleted': {
-        // Använd 'any' för properties som typerna inte känner till (t.ex. current_period_end)
-        const sub = event.data.object as any; // Stripe.Subscription i runtime, men typerna saknar vissa fält
+        // Använd 'any' eftersom Stripe-typerna inte har alla fält i TS
+        const sub = event.data.object as any as Stripe.Subscription;
         const stripeCustomer = sub.customer as string;
 
-        const { data: prof } = await supabaseAdmin
-          .from('profiles')
-          .select('id')
-          .eq('stripe_customer_id', stripeCustomer)
-          .maybeSingle();
+        // Hitta användaren
+        let userId =
+          (sub.metadata?.user_id as string) || (await findUserIdByCustomerId(stripeCustomer));
 
-        if (prof?.id) {
-          const priceId: string | null = sub?.items?.data?.[0]?.price?.id ?? null;
+        // Uppdatera user_subscriptions (oförändrad logik du hade)
+        const priceId: string | null = sub?.items?.data?.[0]?.price?.id ?? null;
+        const rawPeriodEnd = (sub as any)?.current_period_end; // unix seconds
+        const periodEnd: string | null =
+          typeof rawPeriodEnd === 'number' ? new Date(rawPeriodEnd * 1000).toISOString() : null;
 
-          const rawPeriodEnd = sub?.current_period_end; // kan vara number (unix seconds) eller undefined
-          const periodEnd: string | null =
-            typeof rawPeriodEnd === 'number'
-              ? new Date(rawPeriodEnd * 1000).toISOString()
-              : null;
-
+        if (userId) {
           await supabaseAdmin
             .from('user_subscriptions')
             .upsert(
               {
-                user_id: prof.id,
+                user_id: userId,
                 status: sub.status,
                 price_id: priceId ?? undefined,
                 cancel_at_period_end: Boolean(sub?.cancel_at_period_end),
@@ -104,6 +144,17 @@ export async function POST(req: Request) {
               },
               { onConflict: 'user_id' }
             );
+
+          // 🔄 Uppdatera även profiles så Dashboarden visar Subscribed + plan
+          if (event.type !== 'customer.subscription.deleted') {
+            await updateProfileFromSubscription(userId, sub);
+          } else {
+            // Vid deletion markerar vi status 'canceled' men rör ej plan_type om du inte vill
+            await supabaseAdmin
+              .from('profiles')
+              .update({ plan_status: 'canceled' })
+              .eq('id', userId);
+          }
         }
         break;
       }
