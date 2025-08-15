@@ -44,9 +44,12 @@ function getPlanDisplay(profile: Profile | null): { label: string; subline: stri
     else if (plan === 'single') planText = 'Single Analysis';
     else planText = formatPlan(plan);
 
-    // Behåll tidigare beteende att visa "until ..." om datum finns.
+    // Visa tydligt när nästa period förnyas/löper ut om datum finns.
     const parts: string[] = [planText];
-    if (periodEnd) parts.push(`until ${new Date(periodEnd).toLocaleDateString()}`);
+    if (periodEnd) {
+      const d = new Date(periodEnd);
+      parts.push(`renews on ${d.toLocaleDateString()}`);
+    }
 
     return {
       label: 'Subscribed',
