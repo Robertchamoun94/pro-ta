@@ -28,6 +28,39 @@ function formatSubline(status: PlanStatus, periodEnd: string | null): string {
   return parts.join(' • ');
 }
 
+/**
+ * Endast visningslogik: om prenumerationen är aktiv, visa "Subscribed" och rätt plantext.
+ * Layout och övrig logik lämnas orörd.
+ */
+function getPlanDisplay(profile: Profile | null): { label: string; subline: string } {
+  const plan = profile?.plan_type ?? 'free';
+  const status = profile?.plan_status ?? null;
+  const periodEnd = profile?.current_period_end ?? null;
+
+  if (status === 'active') {
+    let planText = '';
+    if (plan === 'monthly') planText = '1 Month plan';
+    else if (plan === 'yearly') planText = '1 Year plan';
+    else if (plan === 'single') planText = 'Single Analysis';
+    else planText = formatPlan(plan);
+
+    // Behåll tidigare beteende att visa "until ..." om datum finns.
+    const parts: string[] = [planText];
+    if (periodEnd) parts.push(`until ${new Date(periodEnd).toLocaleDateString()}`);
+
+    return {
+      label: 'Subscribed',
+      subline: parts.join(' • '),
+    };
+  }
+
+  // Fallback exakt som tidigare
+  return {
+    label: formatPlan(plan),
+    subline: formatSubline(status, periodEnd),
+  };
+}
+
 export default async function DashboardPage() {
   const supabase = createServerComponentClient({ cookies });
   const {
@@ -51,8 +84,7 @@ export default async function DashboardPage() {
     profile = null;
   }
 
-  const planLabel = formatPlan(profile?.plan_type ?? 'free');
-  const subline = formatSubline(profile?.plan_status ?? null, profile?.current_period_end ?? null);
+  const { label: planLabel, subline } = getPlanDisplay(profile);
 
   return (
     <main className="min-h-[60vh] px-6 py-10">
