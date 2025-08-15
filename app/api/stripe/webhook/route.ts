@@ -49,7 +49,7 @@ async function findUserIdByCustomerId(customerId: string): Promise<string | null
   return data?.id ?? null;
 }
 
-// 🆕 Fallback: hitta användare via kundens e-post i Stripe
+// Fallback: hitta användare via kundens e-post i Stripe
 async function findUserIdByCustomerEmail(customerId: string): Promise<string | null> {
   try {
     const customer = await stripe.customers.retrieve(customerId);
@@ -134,7 +134,7 @@ export async function POST(req: Request) {
           (sub.metadata?.user_id as string) ||
           (await findUserIdByCustomerId(stripeCustomer));
 
-        // 🆕 Fallback om stripe_customer_id saknas
+        // Fallback om stripe_customer_id saknas
         if (!userId && stripeCustomer) {
           userId = await findUserIdByCustomerEmail(stripeCustomer);
         }
@@ -175,17 +175,28 @@ export async function POST(req: Request) {
         break;
       }
 
-      // 🆕 Synka current_period_end på första betalning & vid förnyelser
+      // Synka current_period_end vid första betalning & förnyelser
       case 'invoice.payment_succeeded': {
-        const invoice = event.data.object as Stripe.Invoice;
+        const inv: any = event.data.object as any;
 
-        if (invoice.subscription && invoice.customer) {
+        // Hämta subscription-id och customer-id robust över olika TS-versioner
+        const subscriptionId: string | null =
+          typeof inv.subscription === 'string'
+            ? inv.subscription
+            : (inv.lines?.data?.[0]?.subscription as string | undefined) ?? null;
+
+        const customerId: string | null =
+          typeof inv.customer === 'string'
+            ? inv.customer
+            : (inv.customer?.id as string | undefined) ?? null;
+
+        if (subscriptionId && customerId) {
           try {
-            const sub = await stripe.subscriptions.retrieve(invoice.subscription as string);
+            const sub = await stripe.subscriptions.retrieve(subscriptionId);
 
             let userId =
-              (await findUserIdByCustomerId(invoice.customer as string)) ??
-              (await findUserIdByCustomerEmail(invoice.customer as string));
+              (await findUserIdByCustomerId(customerId)) ??
+              (await findUserIdByCustomerEmail(customerId));
 
             if (userId) {
               await updateProfileFromSubscription(userId, sub);
