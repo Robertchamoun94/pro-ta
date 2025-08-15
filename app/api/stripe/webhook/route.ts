@@ -175,6 +175,28 @@ export async function POST(req: Request) {
         break;
       }
 
+      // 🆕 Synka current_period_end på första betalning & vid förnyelser
+      case 'invoice.payment_succeeded': {
+        const invoice = event.data.object as Stripe.Invoice;
+
+        if (invoice.subscription && invoice.customer) {
+          try {
+            const sub = await stripe.subscriptions.retrieve(invoice.subscription as string);
+
+            let userId =
+              (await findUserIdByCustomerId(invoice.customer as string)) ??
+              (await findUserIdByCustomerEmail(invoice.customer as string));
+
+            if (userId) {
+              await updateProfileFromSubscription(userId, sub);
+            }
+          } catch (e) {
+            console.error('invoice.payment_succeeded sync error:', e);
+          }
+        }
+        break;
+      }
+
       default:
         break;
     }
