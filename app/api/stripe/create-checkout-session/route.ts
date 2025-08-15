@@ -34,12 +34,13 @@ export async function POST(req: Request) {
     const successUrl = `${SITE_URL}/?paid=1&session_id={CHECKOUT_SESSION_ID}`;
     const cancelUrl = `${SITE_URL}/pricing?canceled=1`;
 
-    // gemensamma fält
+    // gemensamma fält (oförändrat, plus metadata.user_id för webhook-mappning)
     const base: any = {
       success_url: successUrl,
       cancel_url: cancelUrl,
-      client_reference_id: userId,     // <- viktigt för att kunna knyta köp till användaren
-      customer_email: userEmail,       // valfritt men trevligt för autofill
+      client_reference_id: userId, // hjälper vid spårning
+      customer_email: userEmail,   // autofill
+      metadata: { user_id: userId } // <-- VIKTIGT: gör att webhooken kan uppdatera profiles
     };
 
     let sessionStripe;
