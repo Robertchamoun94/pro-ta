@@ -20,20 +20,27 @@ function mapPlanType(sub: Stripe.Subscription): 'monthly' | 'yearly' {
 /** Hjälpare: uppdatera profiles med plan/status/period_end */
 async function updateProfileFromSubscription(
   userId: string,
-  sub: Stripe.Subscription
+  sub: Stripe.Subscription | any
 ) {
-  const plan_type = mapPlanType(sub);
+  const plan_type = mapPlanType(sub as Stripe.Subscription);
+
+  // TS-typerna saknar current_period_end – läs via any
+  const rawPeriodEnd = (sub as any)?.current_period_end;
   const current_period_end =
-    sub.current_period_end ? new Date(sub.current_period_end * 1000).toISOString() : null;
+    typeof rawPeriodEnd === 'number'
+      ? new Date(rawPeriodEnd * 1000).toISOString()
+      : null;
+
+  const stripeCustomerId =
+    typeof (sub as any)?.customer === 'string' ? ((sub as any).customer as string) : null;
 
   await supabaseAdmin
     .from('profiles')
     .update({
-      plan_type,                             // 'monthly' | 'yearly'
-      plan_status: (sub.status as any) ?? null, // 'active' | 'trialing' | ...
+      plan_type,                                   // 'monthly' | 'yearly'
+      plan_status: ((sub as any).status as any) ?? null, // 'active' | 'trialing' | ...
       current_period_end,
-      stripe_customer_id:
-        typeof sub.customer === 'string' ? (sub.customer as string) : null,
+      stripe_customer_id: stripeCustomerId,
     })
     .eq('id', userId);
 }
@@ -75,7 +82,7 @@ export async function POST(req: Request) {
         const session = event.data.object as Stripe.Checkout.Session;
         const stripeCustomer = (session.customer as string) ?? null;
 
-        // 🧭 Identifiera användare – metadata.user_id (steg 1) eller client_reference_id (din befintliga)
+        // 🎯 Identifiera användare – metadata.user_id (steg 1) eller client_reference_id (din befintliga)
         const userIdFromMeta = (session.metadata?.user_id as string) || null;
         const userIdFromClientRef = (session.client_reference_id as string) || null;
         const resolvedUserId = userIdFromMeta || userIdFromClientRef || null;
@@ -103,7 +110,6 @@ export async function POST(req: Request) {
         if (session.mode === 'subscription' && session.subscription) {
           const sub = await stripe.subscriptions.retrieve(session.subscription as string);
 
-          // Försök uppdatera via säker user-id; annars via kund-id
           let userId = resolvedUserId;
           if (!userId && stripeCustomer) userId = await findUserIdByCustomerId(stripeCustomer);
           if (userId) {
@@ -116,17 +122,17 @@ export async function POST(req: Request) {
       case 'customer.subscription.created':
       case 'customer.subscription.updated':
       case 'customer.subscription.deleted': {
-        // Använd 'any' eftersom Stripe-typerna inte har alla fält i TS
-        const sub = event.data.object as any as Stripe.Subscription;
+        // 'any' för att läsa fält som inte finns i TS-typen (current_period_end)
+        const sub: any = event.data.object as any;
         const stripeCustomer = sub.customer as string;
 
         // Hitta användaren
         let userId =
           (sub.metadata?.user_id as string) || (await findUserIdByCustomerId(stripeCustomer));
 
-        // Uppdatera user_subscriptions (oförändrad logik du hade)
+        // Uppdatera user_subscriptions (din befintliga logik)
         const priceId: string | null = sub?.items?.data?.[0]?.price?.id ?? null;
-        const rawPeriodEnd = (sub as any)?.current_period_end; // unix seconds
+        const rawPeriodEnd = sub?.current_period_end; // unix seconds
         const periodEnd: string | null =
           typeof rawPeriodEnd === 'number' ? new Date(rawPeriodEnd * 1000).toISOString() : null;
 
@@ -145,11 +151,10 @@ export async function POST(req: Request) {
               { onConflict: 'user_id' }
             );
 
-          // 🔄 Uppdatera även profiles så Dashboarden visar Subscribed + plan
+          // 🔄 Spegla även till profiles så Dashboard visar Subscribed + plan
           if (event.type !== 'customer.subscription.deleted') {
             await updateProfileFromSubscription(userId, sub);
           } else {
-            // Vid deletion markerar vi status 'canceled' men rör ej plan_type om du inte vill
             await supabaseAdmin
               .from('profiles')
               .update({ plan_status: 'canceled' })
