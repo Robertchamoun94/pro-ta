@@ -33,7 +33,7 @@ export default async function HeaderAuth() {
           >
             {/* Liten ikon före texten – inga klassändringar, endast inline-stil */}
             <img
-              src="/logo-icon.svg?v=1"
+              src="/logo-skyline.svg?v=1"
               alt="ArcSignals logo"
               width={24}
               height={24}
