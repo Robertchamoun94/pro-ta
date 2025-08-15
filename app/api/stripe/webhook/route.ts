@@ -96,6 +96,7 @@ export async function POST(req: Request) {
         const userIdFromClientRef = (session.client_reference_id as string) || null;
         const resolvedUserId = userIdFromMeta || userIdFromClientRef || null;
 
+        // 1) Koppla kund-id till profil
         if (resolvedUserId && stripeCustomer) {
           await supabaseAdmin
             .from('profiles')
@@ -103,6 +104,62 @@ export async function POST(req: Request) {
             .eq('id', resolvedUserId);
         }
 
+        // 2) Prenumeration: uppdatera profil från subscription
+        if (session.mode === 'subscription' && session.subscription) {
+          const sub: any = await stripe.subscriptions.retrieve(session.subscription as string);
+
+          let userId = resolvedUserId;
+          if (!userId && stripeCustomer) userId = await findUserIdByCustomerId(stripeCustomer);
+
+          if (userId) {
+            // Primär uppdatering (om current_period_end redan finns)
+            await updateProfileFromSubscription(userId, sub);
+
+            // 🛡️ Fallback: om current_period_end saknas, hämta från invoice
+            const hasEnd = typeof (sub as any)?.current_period_end === 'number';
+            if (!hasEnd) {
+              try {
+                // använd session.invoice först, annars sub.latest_invoice
+                const invoiceId: string | null =
+                  (typeof (session as any).invoice === 'string' ? (session as any).invoice : null) ??
+                  (typeof sub.latest_invoice === 'string' ? sub.latest_invoice : null);
+
+                if (invoiceId) {
+                  const inv: any = await stripe.invoices.retrieve(invoiceId);
+                  const line = inv?.lines?.data?.[0];
+                  const endUnix: number | null =
+                    typeof line?.period?.end === 'number'
+                      ? line.period.end
+                      : typeof inv?.period_end === 'number'
+                      ? inv.period_end
+                      : null;
+
+                  const interval: string | undefined =
+                    line?.price?.recurring?.interval ??
+                    inv?.lines?.data?.[0]?.price?.recurring?.interval;
+
+                  const plan_type = interval === 'year' ? 'yearly' : 'monthly';
+
+                  if (endUnix) {
+                    await supabaseAdmin
+                      .from('profiles')
+                      .update({
+                        plan_type,
+                        plan_status: 'active',
+                        current_period_end: new Date(endUnix * 1000).toISOString(),
+                        stripe_customer_id: stripeCustomer ?? undefined,
+                      })
+                      .eq('id', userId);
+                  }
+                }
+              } catch (e) {
+                console.error('checkout.session.completed invoice fallback error:', e);
+              }
+            }
+          }
+        }
+
+        // 3) Engångsköp: +1 kredit (oförändrat)
         if (session.mode === 'payment' && session.payment_status === 'paid') {
           let userId = resolvedUserId;
           if (!userId && stripeCustomer) {
@@ -110,15 +167,6 @@ export async function POST(req: Request) {
           }
           if (userId) {
             await supabaseAdmin.rpc('grant_credits', { p_user_id: userId, p_n: 1 });
-          }
-        }
-
-        if (session.mode === 'subscription' && session.subscription) {
-          const sub = await stripe.subscriptions.retrieve(session.subscription as string);
-          let userId = resolvedUserId;
-          if (!userId && stripeCustomer) userId = await findUserIdByCustomerId(stripeCustomer);
-          if (userId) {
-            await updateProfileFromSubscription(userId, sub);
           }
         }
         break;
@@ -134,7 +182,6 @@ export async function POST(req: Request) {
           (sub.metadata?.user_id as string) ||
           (await findUserIdByCustomerId(stripeCustomer));
 
-        // Fallback om stripe_customer_id saknas
         if (!userId && stripeCustomer) {
           userId = await findUserIdByCustomerEmail(stripeCustomer);
         }
@@ -175,12 +222,11 @@ export async function POST(req: Request) {
         break;
       }
 
-      // Synka current_period_end vid betalningar/förnyelser (0 kr eller >0 kr)
+      // Betald faktura (0 kr eller >0 kr) → sätt current_period_end
       case 'invoice.payment_succeeded':
       case 'invoice.paid': {
         const inv: any = event.data.object as any;
 
-        // Hämta subscription-id & customer-id robust över olika payloads/TS-versioner
         const subscriptionId: string | null =
           typeof inv.subscription === 'string'
             ? inv.subscription
@@ -191,7 +237,6 @@ export async function POST(req: Request) {
             ? inv.customer
             : (inv.customer?.id as string | undefined) ?? null;
 
-        // Hitta användaren
         let userId: string | null = null;
         if (customerId) {
           userId =
@@ -202,7 +247,6 @@ export async function POST(req: Request) {
         if (userId) {
           let updated = false;
 
-          // 1) Försök uppdatera via subscription-objektet (om vi har id)
           if (subscriptionId) {
             try {
               const sub = await stripe.subscriptions.retrieve(subscriptionId);
@@ -213,7 +257,6 @@ export async function POST(req: Request) {
             }
           }
 
-          // 2) Fallback: använd invoice line/invoice för periodslut & intervall
           if (!updated) {
             const line = inv.lines?.data?.[0];
             const lineEndUnix = line?.period?.end;
@@ -225,7 +268,6 @@ export async function POST(req: Request) {
                 ? invoiceEndUnix
                 : null;
 
-            // interval → bestäm plan_type (month/year). Hämta från line, annars 'monthly'.
             const interval: string | undefined =
               line?.price?.recurring?.interval ??
               inv?.lines?.data?.[0]?.price?.recurring?.interval;
