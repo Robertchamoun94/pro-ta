@@ -151,13 +151,18 @@ export async function POST(req: Request) {
               { onConflict: 'user_id' }
             );
 
-          // 🔄 Spegla även till profiles så Dashboard visar Subscribed + plan
+          // 🔄 Spegla även till profiles så Dashboard visar rätt
           if (event.type !== 'customer.subscription.deleted') {
             await updateProfileFromSubscription(userId, sub);
           } else {
+            // ⛳️ ÄNDRING: sätt profilen till Free när abonnemanget är *verkligen* avslutat
             await supabaseAdmin
               .from('profiles')
-              .update({ plan_status: 'canceled' })
+              .update({
+                plan_type: 'free',
+                plan_status: null,
+                current_period_end: null,
+              })
               .eq('id', userId);
           }
         }
