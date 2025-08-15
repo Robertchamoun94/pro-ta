@@ -38,7 +38,7 @@ export default async function DashboardPage() {
     redirect(`/auth/sign-in?redirect=${encodeURIComponent('/dashboard')}`);
   }
 
-  // ---- ORIGINAL: Läs profil (behållt) ----
+  // Läs profil (om tabell/kolumn saknas => fallback till Free)
   let profile: Profile | null = null;
   try {
     const { data } = await supabase
@@ -51,39 +51,8 @@ export default async function DashboardPage() {
     profile = null;
   }
 
-  // ---- NYTT: Läs stripe-baserad prenumeration (utan att ändra layout) ----
-  // Används endast om profil säger "free"/saknas men Stripe-sub finns.
-  let subPlanType: PlanType = null;
-  let subStatus: PlanStatus = null;
-  let subPeriodEnd: string | null = null;
-
-  try {
-    const { data: sub } = await supabase
-      .from('user_subscriptions')
-      .select('plan_id, status, current_period_end')
-      .eq('user_id', session!.user.id)
-      .maybeSingle();
-
-    if (sub && (sub.status === 'active' || sub.status === 'trialing')) {
-      const planId = (sub.plan_id || '').toLowerCase();
-      subPlanType = planId.includes('year') ? 'yearly' : planId.includes('month') ? 'monthly' : 'monthly'; // fallback
-      subStatus = sub.status as PlanStatus;
-      subPeriodEnd = sub.current_period_end ?? null;
-    }
-  } catch {
-    // no-op
-  }
-
-  // Välj "effektiv" plan/status/datum (utan att ändra befintlig renderstruktur)
-  const effectivePlanType: PlanType =
-    subPlanType ?? (profile?.plan_type ?? 'free');
-  const effectiveStatus: PlanStatus =
-    subStatus ?? (profile?.plan_status ?? null);
-  const effectivePeriodEnd: string | null =
-    subPeriodEnd ?? (profile?.current_period_end ?? null);
-
-  const planLabel = formatPlan(effectivePlanType);
-  const subline = formatSubline(effectiveStatus, effectivePeriodEnd);
+  const planLabel = formatPlan(profile?.plan_type ?? 'free');
+  const subline = formatSubline(profile?.plan_status ?? null, profile?.current_period_end ?? null);
 
   return (
     <main className="min-h-[60vh] px-6 py-10">
@@ -112,16 +81,12 @@ export default async function DashboardPage() {
             >
               Go to Analysis
             </Link>
-
-            {/* BYT endast interaktionen för "Change plan" till Customer Portal (samma look) */}
-            <form action="/api/billing/portal" method="post">
-              <button
-                type="submit"
-                className="rounded-lg border border-slate-900 bg-slate-900 text-white px-3.5 py-2 text-sm hover:opacity-90 transition"
-              >
-                Change plan
-              </button>
-            </form>
+            <Link
+              href="/pricing"
+              className="rounded-lg border border-slate-900 bg-slate-900 text-white px-3.5 py-2 text-sm hover:opacity-90 transition"
+            >
+              Change plan
+            </Link>
           </div>
         </div>
       </div>
