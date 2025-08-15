@@ -179,7 +179,7 @@ export async function POST(req: Request) {
       case 'invoice.payment_succeeded': {
         const inv: any = event.data.object as any;
 
-        // Hämta subscription-id och customer-id robust över olika TS-versioner
+        // Hämta subscription-id & customer-id robust över olika payloads/TS-versioner
         const subscriptionId: string | null =
           typeof inv.subscription === 'string'
             ? inv.subscription
@@ -190,19 +190,46 @@ export async function POST(req: Request) {
             ? inv.customer
             : (inv.customer?.id as string | undefined) ?? null;
 
-        if (subscriptionId && customerId) {
-          try {
-            const sub = await stripe.subscriptions.retrieve(subscriptionId);
+        // Hitta användaren
+        let userId: string | null = null;
+        if (customerId) {
+          userId =
+            (await findUserIdByCustomerId(customerId)) ??
+            (await findUserIdByCustomerEmail(customerId));
+        }
 
-            let userId =
-              (await findUserIdByCustomerId(customerId)) ??
-              (await findUserIdByCustomerEmail(customerId));
+        if (userId) {
+          let updated = false;
 
-            if (userId) {
+          // Försök uppdatera via subscription-objektet (om vi har id)
+          if (subscriptionId) {
+            try {
+              const sub = await stripe.subscriptions.retrieve(subscriptionId);
               await updateProfileFromSubscription(userId, sub);
+              updated = true;
+            } catch (e) {
+              console.error('invoice.payment_succeeded retrieve sub error:', e);
             }
-          } catch (e) {
-            console.error('invoice.payment_succeeded sync error:', e);
+          }
+
+          // Fallback: använd invoice line för period-end + interval
+          if (!updated) {
+            const line = inv.lines?.data?.[0];
+            const endUnix = line?.period?.end;
+            const interval = line?.price?.recurring?.interval; // 'month' | 'year'
+            const plan_type = interval === 'year' ? 'yearly' : 'monthly';
+            const current_period_end =
+              typeof endUnix === 'number' ? new Date(endUnix * 1000).toISOString() : null;
+
+            await supabaseAdmin
+              .from('profiles')
+              .update({
+                plan_type,
+                plan_status: 'active',
+                current_period_end,
+                stripe_customer_id: customerId ?? undefined,
+              })
+              .eq('id', userId);
           }
         }
         break;
