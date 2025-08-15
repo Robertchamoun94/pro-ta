@@ -67,6 +67,90 @@ async function findUserIdByCustomerEmail(customerId: string): Promise<string | n
   return null;
 }
 
+/** Robust fallback för periodslut om sub/invoice ännu inte är helt kopplad */
+async function upsertPeriodEndFallback(params: {
+  userId: string;
+  customerId: string | null;
+  subscription: any; // Stripe.Subscription | any
+  session: any;      // Stripe.Checkout.Session | any
+}) {
+  const { userId, customerId, subscription: sub, session } = params;
+
+  // 1) Försök via explicit invoice-id
+  let invoiceId: string | null =
+    (typeof session?.invoice === 'string' ? session.invoice : null) ??
+    (typeof sub?.latest_invoice === 'string' ? sub.latest_invoice : null);
+
+  let inv: any = null;
+  try {
+    if (invoiceId) inv = await stripe.invoices.retrieve(invoiceId);
+  } catch (e) {
+    // ignore; vi går vidare till listning/beräkning
+  }
+
+  // 2) Om saknas: lista senaste invoice för (customer + subscription)
+  if (!inv && sub?.id && customerId) {
+    try {
+      const list = await stripe.invoices.list({
+        customer: customerId,
+        subscription: sub.id,
+        limit: 1,
+      });
+      inv = list?.data?.[0] ?? null;
+    } catch (e) {
+      // ignore; vi går vidare till beräkning
+    }
+  }
+
+  // 3) Försök läsa periodslut och intervall från invoice line
+  let endUnix: number | null = null;
+  let interval: string | undefined = undefined;
+
+  if (inv) {
+    const line = inv?.lines?.data?.[0];
+    endUnix =
+      typeof line?.period?.end === 'number'
+        ? line.period.end
+        : typeof inv?.period_end === 'number'
+        ? inv.period_end
+        : null;
+
+    interval =
+      line?.price?.recurring?.interval ??
+      inv?.lines?.data?.[0]?.price?.recurring?.interval;
+  }
+
+  // 4) Om fortfarande saknas: beräkna från sub.current_period_start + interval
+  if (!endUnix) {
+    const startUnix: number | undefined = sub?.current_period_start;
+    const priceInterval: string | undefined = sub?.items?.data?.[0]?.price?.recurring?.interval;
+    interval = interval ?? priceInterval;
+
+    if (typeof startUnix === 'number' && interval) {
+      const d = new Date(startUnix * 1000);
+      if (interval === 'year') d.setUTCFullYear(d.getUTCFullYear() + 1);
+      else d.setUTCMonth(d.getUTCMonth() + 1);
+      endUnix = Math.floor(d.getTime() / 1000);
+    }
+  }
+
+  // 5) Uppdatera profilen om vi lyckats ta fram ett datum
+  if (endUnix) {
+    const current_period_end = new Date(endUnix * 1000).toISOString();
+    const plan_type = interval === 'year' ? 'yearly' : 'monthly';
+
+    await supabaseAdmin
+      .from('profiles')
+      .update({
+        plan_type,
+        plan_status: 'active',
+        current_period_end,
+        stripe_customer_id: customerId ?? undefined,
+      })
+      .eq('id', userId);
+  }
+}
+
 export async function POST(req: Request) {
   const sig = req.headers.get('stripe-signature');
   const body = await req.text();
@@ -96,7 +180,7 @@ export async function POST(req: Request) {
         const userIdFromClientRef = (session.client_reference_id as string) || null;
         const resolvedUserId = userIdFromMeta || userIdFromClientRef || null;
 
-        // 1) Koppla kund-id till profil
+        // 1) Koppla kund-id
         if (resolvedUserId && stripeCustomer) {
           await supabaseAdmin
             .from('profiles')
@@ -104,7 +188,7 @@ export async function POST(req: Request) {
             .eq('id', resolvedUserId);
         }
 
-        // 2) Prenumeration: uppdatera profil från subscription
+        // 2) Prenumeration → uppdatera profil
         if (session.mode === 'subscription' && session.subscription) {
           const sub: any = await stripe.subscriptions.retrieve(session.subscription as string);
 
@@ -112,54 +196,22 @@ export async function POST(req: Request) {
           if (!userId && stripeCustomer) userId = await findUserIdByCustomerId(stripeCustomer);
 
           if (userId) {
-            // Primär uppdatering (om current_period_end redan finns)
             await updateProfileFromSubscription(userId, sub);
 
-            // 🛡️ Fallback: om current_period_end saknas, hämta från invoice
+            // 🔒 Extra fallback om periodslut saknas: Invoice → listning → beräkning
             const hasEnd = typeof (sub as any)?.current_period_end === 'number';
             if (!hasEnd) {
-              try {
-                // använd session.invoice först, annars sub.latest_invoice
-                const invoiceId: string | null =
-                  (typeof (session as any).invoice === 'string' ? (session as any).invoice : null) ??
-                  (typeof sub.latest_invoice === 'string' ? sub.latest_invoice : null);
-
-                if (invoiceId) {
-                  const inv: any = await stripe.invoices.retrieve(invoiceId);
-                  const line = inv?.lines?.data?.[0];
-                  const endUnix: number | null =
-                    typeof line?.period?.end === 'number'
-                      ? line.period.end
-                      : typeof inv?.period_end === 'number'
-                      ? inv.period_end
-                      : null;
-
-                  const interval: string | undefined =
-                    line?.price?.recurring?.interval ??
-                    inv?.lines?.data?.[0]?.price?.recurring?.interval;
-
-                  const plan_type = interval === 'year' ? 'yearly' : 'monthly';
-
-                  if (endUnix) {
-                    await supabaseAdmin
-                      .from('profiles')
-                      .update({
-                        plan_type,
-                        plan_status: 'active',
-                        current_period_end: new Date(endUnix * 1000).toISOString(),
-                        stripe_customer_id: stripeCustomer ?? undefined,
-                      })
-                      .eq('id', userId);
-                  }
-                }
-              } catch (e) {
-                console.error('checkout.session.completed invoice fallback error:', e);
-              }
+              await upsertPeriodEndFallback({
+                userId,
+                customerId: stripeCustomer,
+                subscription: sub,
+                session,
+              });
             }
           }
         }
 
-        // 3) Engångsköp: +1 kredit (oförändrat)
+        // 3) Engångsköp → +1 kredit (oförändrat)
         if (session.mode === 'payment' && session.payment_status === 'paid') {
           let userId = resolvedUserId;
           if (!userId && stripeCustomer) {
@@ -222,7 +274,7 @@ export async function POST(req: Request) {
         break;
       }
 
-      // Betald faktura (0 kr eller >0 kr) → sätt current_period_end
+      // Faktura betald (0 kr eller >0 kr) → sätt periodslut
       case 'invoice.payment_succeeded':
       case 'invoice.paid': {
         const inv: any = event.data.object as any;
@@ -258,6 +310,7 @@ export async function POST(req: Request) {
           }
 
           if (!updated) {
+            // fallback: invoice line / invoice period_end
             const line = inv.lines?.data?.[0];
             const lineEndUnix = line?.period?.end;
             const invoiceEndUnix = inv?.period_end;
