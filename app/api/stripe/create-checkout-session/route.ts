@@ -38,9 +38,10 @@ export async function POST(req: Request) {
     const base: any = {
       success_url: successUrl,
       cancel_url: cancelUrl,
-      client_reference_id: userId, // hjälper vid spårning
-      customer_email: userEmail,   // autofill
-      metadata: { user_id: userId } // <-- VIKTIGT: gör att webhooken kan uppdatera profiles
+      client_reference_id: userId,   // hjälper vid spårning
+      customer_email: userEmail,     // autofill
+      metadata: { user_id: userId }, // för webhook → profiles
+      allow_promotion_codes: true,   // ← NY RAD: visar “Add promotion code” i Checkout
     };
 
     let sessionStripe;
