@@ -57,7 +57,7 @@ function getPlanDisplay(profile: Profile | null): { label: string; subline: stri
     else if (plan === 'single') planText = 'Single Analysis';
     else planText = formatPlan(plan);
 
-    // ✅ Endast VISUELL överstyrning: om nästa förnyelsedatum ligger ~1 år bort, visa "1 Year plan"
+    // Visuell överstyrning utifrån nästa förnyelse
     if (periodEnd) {
       const now = new Date();
       const end = new Date(periodEnd);
@@ -110,18 +110,17 @@ export default async function DashboardPage() {
     profile = null;
   }
 
-  // 🔒 Sista-säkerhets-fallback
-  const needsBackfill =
+  // 🔒 Synka mot Stripe vid aktiv/trialing premium eller om end saknas
+  const needsStripeSync =
     !!profile?.stripe_customer_id &&
-    !profile?.current_period_end &&
+    (profile?.plan_type === 'monthly' || profile?.plan_type === 'yearly') &&
     (
-      profile?.plan_type === 'monthly' ||
-      profile?.plan_type === 'yearly' ||
-      profile?.plan_status === 'active' ||
+      !profile?.current_period_end ||                // saknas end → backfill
+      profile?.plan_status === 'active' ||           // aktiv/trialing → kolla ev. pending cancel
       profile?.plan_status === 'trialing'
     );
 
-  if (needsBackfill) {
+  if (needsStripeSync) {
     try {
       const list = await stripe.subscriptions.list({
         customer: profile!.stripe_customer_id!,
@@ -143,21 +142,21 @@ export default async function DashboardPage() {
       if (pick) {
         const anySub: any = pick as any;
 
-        // 1) Försök använda current_period_end direkt
+        // Avläs tider & intervall
         let endUnix: number | null =
           typeof anySub.current_period_end === 'number' ? anySub.current_period_end : null;
 
-        // 2) Bestäm start (period_start || created)
+        const cancelAtUnix: number | null =
+          typeof anySub.cancel_at === 'number' ? anySub.cancel_at : null;
+
         const startUnix: number | undefined =
           (typeof anySub.current_period_start === 'number' ? anySub.current_period_start : undefined) ??
           (typeof anySub.created === 'number' ? anySub.created : undefined);
 
-        // 3) Försök få interval från price.recurring.interval
         let interval: 'month' | 'year' | undefined = normalizeInterval(
           pick.items?.data?.[0]?.price?.recurring?.interval
         );
 
-        // 4) Om endUnix saknas – räkna fram via start + interval
         if (!endUnix && startUnix && interval) {
           const d = new Date(startUnix * 1000);
           if (interval === 'year') d.setUTCFullYear(d.getUTCFullYear() + 1);
@@ -165,14 +164,18 @@ export default async function DashboardPage() {
           endUnix = Math.floor(d.getTime() / 1000);
         }
 
-        // 5) Om interval saknas men vi har start & end → inferera via skillnad i dagar
         if (!interval && startUnix && typeof endUnix === 'number') {
           const diffDays = (endUnix - startUnix) / 86400;
-          interval = diffDays > 330 ? 'year' : 'month'; // robust heuristik
+          interval = diffDays > 330 ? 'year' : 'month';
         }
 
-        if (endUnix) {
-          const nextEndISO = new Date(endUnix * 1000).toISOString();
+        // ✅ NYTT: om Stripe visar Pending Cancel, visa "Canceled" direkt och skriv tillbaka
+        const willCancel = anySub.cancel_at_period_end === true || cancelAtUnix !== null;
+
+        const nextEndUnix = willCancel ? (cancelAtUnix ?? endUnix) : endUnix;
+
+        if (nextEndUnix) {
+          const nextEndISO = new Date(nextEndUnix * 1000).toISOString();
 
           // Typ-säkert planType-val
           const currentPlan: PlanType = profile ? profile.plan_type : null;
@@ -183,7 +186,10 @@ export default async function DashboardPage() {
               ? 'monthly'
               : currentPlan;
 
-          const nextStatus: PlanStatus = profile?.plan_status ?? (pick.status as PlanStatus) ?? null;
+          // Om pending cancel enligt Stripe → sätt canceled, annars behåll status
+          const nextStatus: PlanStatus = willCancel
+            ? 'canceled'
+            : (profile?.plan_status ?? (pick.status as PlanStatus) ?? null);
 
           await supabase
             .from('profiles')
@@ -203,7 +209,7 @@ export default async function DashboardPage() {
         }
       }
     } catch {
-      // Best-effort – webhooks kompletterar annars
+      // Best-effort – webhooks/web app kompletterar annars
     }
   }
 
