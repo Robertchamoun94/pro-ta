@@ -5,6 +5,7 @@ import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { createServerComponentClient } from '@supabase/auth-helpers-nextjs';
 import { stripe } from '@/lib/stripe'; // Endast för SSR-fallback
+import CancelSubscriptionButton from './CancelSubscriptionButton'; // ✅ NY: knappkomponent
 
 type PlanType = 'free' | 'single' | 'monthly' | 'yearly' | null;
 type PlanStatus = 'active' | 'canceled' | 'incomplete' | 'trialing' | null;
@@ -230,6 +231,12 @@ export default async function DashboardPage() {
             >
               Change plan
             </Link>
+
+            {/* ✅ NY: visa avbryt-knappen endast när premium-planen är aktiv/trialing */}
+            {(
+              (profile?.plan_type === 'monthly' || profile?.plan_type === 'yearly') &&
+              (profile?.plan_status === 'active' || profile?.plan_status === 'trialing')
+            ) && <CancelSubscriptionButton />}
           </div>
         </div>
       </div>
