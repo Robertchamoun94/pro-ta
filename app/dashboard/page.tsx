@@ -5,7 +5,7 @@ import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { createServerComponentClient } from '@supabase/auth-helpers-nextjs';
 import { stripe } from '@/lib/stripe'; // Endast för SSR-fallback
-import CancelSubscriptionButton from './CancelSubscriptionButton'; // ✅ NY: knappkomponent
+import CancelSubscriptionButton from './CancelSubscriptionButton'; // lämna kvar om du redan har knappen
 
 type PlanType = 'free' | 'single' | 'monthly' | 'yearly' | null;
 type PlanStatus = 'active' | 'canceled' | 'incomplete' | 'trialing' | null;
@@ -39,6 +39,15 @@ function getPlanDisplay(profile: Profile | null): { label: string; subline: stri
   const plan = profile?.plan_type ?? 'free';
   const status = profile?.plan_status ?? null;
   const periodEnd = profile?.current_period_end ?? null;
+
+  // ✅ NY: gör det tydligt när avbokning är schemalagd
+  if (status === 'canceled') {
+    const d = periodEnd ? new Date(periodEnd) : null;
+    return {
+      label: 'Canceled',
+      subline: d ? `cancels on ${d.toLocaleDateString()}` : 'cancellation scheduled',
+    };
+  }
 
   if (status === 'active' || status === 'trialing') {
     let planText = '';
@@ -232,7 +241,6 @@ export default async function DashboardPage() {
               Change plan
             </Link>
 
-            {/* ✅ NY: visa avbryt-knappen endast när premium-planen är aktiv/trialing */}
             {(
               (profile?.plan_type === 'monthly' || profile?.plan_type === 'yearly') &&
               (profile?.plan_status === 'active' || profile?.plan_status === 'trialing')
