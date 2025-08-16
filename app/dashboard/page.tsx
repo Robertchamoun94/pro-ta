@@ -227,7 +227,7 @@ export default async function DashboardPage() {
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap md:flex-nowrap items-center gap-3">
             <Link
               href="/"
               className="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm hover:bg-slate-50 transition"
