@@ -88,7 +88,7 @@ export default async function DashboardPage() {
     profile = null;
   }
 
-  // 🔒 Sista-säkerhets-fallback (även för yearly):
+  // 🔒 Sista-säkerhets-fallback
   const needsBackfill =
     !!profile?.stripe_customer_id &&
     !profile?.current_period_end &&
@@ -125,26 +125,41 @@ export default async function DashboardPage() {
         let endUnix: number | null =
           typeof anySub.current_period_end === 'number' ? anySub.current_period_end : null;
 
-        // 2) Annars räkna själv: start = current_period_start || created
-        const interval = normalizeInterval(pick.items?.data?.[0]?.price?.recurring?.interval);
-        if (!endUnix) {
-          const rawStart =
-            (typeof anySub.current_period_start === 'number' ? anySub.current_period_start : undefined) ??
-            (typeof anySub.created === 'number' ? anySub.created : undefined);
+        // 2) Bestäm start (period_start || created)
+        const startUnix: number | undefined =
+          (typeof anySub.current_period_start === 'number' ? anySub.current_period_start : undefined) ??
+          (typeof anySub.created === 'number' ? anySub.created : undefined);
 
-          if (rawStart && interval) {
-            const d = new Date(rawStart * 1000);
-            if (interval === 'year') d.setUTCFullYear(d.getUTCFullYear() + 1);
-            else d.setUTCMonth(d.getUTCMonth() + 1);
-            endUnix = Math.floor(d.getTime() / 1000);
-          }
+        // 3) Försök få interval från price.recurring.interval
+        let interval: 'month' | 'year' | undefined = normalizeInterval(
+          pick.items?.data?.[0]?.price?.recurring?.interval
+        );
+
+        // 4) Om endUnix saknas – räkna fram via start + interval
+        if (!endUnix && startUnix && interval) {
+          const d = new Date(startUnix * 1000);
+          if (interval === 'year') d.setUTCFullYear(d.getUTCFullYear() + 1);
+          else d.setUTCMonth(d.getUTCMonth() + 1);
+          endUnix = Math.floor(d.getTime() / 1000);
+        }
+
+        // 5) Om interval saknas men vi har start & end → inferera via skillnad i dagar
+        if (!interval && startUnix && typeof endUnix === 'number') {
+          const diffDays = (endUnix - startUnix) / 86400;
+          interval = diffDays > 330 ? 'year' : 'month'; // robust heuristik
         }
 
         if (endUnix) {
           const nextEndISO = new Date(endUnix * 1000).toISOString();
+
+          // Typ-säkert planType-val
           const currentPlan: PlanType = profile ? profile.plan_type : null;
           const planType: PlanType =
-            interval === 'year' ? 'yearly' : interval === 'month' ? 'monthly' : currentPlan;
+            interval === 'year'
+              ? 'yearly'
+              : interval === 'month'
+              ? 'monthly'
+              : currentPlan;
 
           const nextStatus: PlanStatus = profile?.plan_status ?? (pick.status as PlanStatus) ?? null;
 
