@@ -5,7 +5,7 @@ import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { createServerComponentClient } from '@supabase/auth-helpers-nextjs';
 import { stripe } from '@/lib/stripe'; // Endast för SSR-fallback
-import CancelSubscriptionButton from './CancelSubscriptionButton'; // lämna kvar om du redan har knappen
+import CancelSubscriptionButton from './CancelSubscriptionButton';
 
 type PlanType = 'free' | 'single' | 'monthly' | 'yearly' | null;
 type PlanStatus = 'active' | 'canceled' | 'incomplete' | 'trialing' | null;
@@ -40,7 +40,7 @@ function getPlanDisplay(profile: Profile | null): { label: string; subline: stri
   const status = profile?.plan_status ?? null;
   const periodEnd = profile?.current_period_end ?? null;
 
-  // ✅ NY: gör det tydligt när avbokning är schemalagd
+  // Tydlig kopia vid uppsägning
   if (status === 'canceled') {
     const d = periodEnd ? new Date(periodEnd) : null;
     return {
@@ -50,18 +50,30 @@ function getPlanDisplay(profile: Profile | null): { label: string; subline: stri
   }
 
   if (status === 'active' || status === 'trialing') {
+    // Bastext enligt plan_type
     let planText = '';
     if (plan === 'monthly') planText = '1 Month plan';
     else if (plan === 'yearly') planText = '1 Year plan';
     else if (plan === 'single') planText = 'Single Analysis';
     else planText = formatPlan(plan);
 
+    // ✅ Endast VISUELL överstyrning: om nästa förnyelsedatum ligger ~1 år bort, visa "1 Year plan"
+    if (periodEnd) {
+      const now = new Date();
+      const end = new Date(periodEnd);
+      const diffDays = (end.getTime() - now.getTime()) / 86400000;
+      if (diffDays > 330) {
+        planText = '1 Year plan';
+      } else if (diffDays > 27 && diffDays <= 330) {
+        planText = '1 Month plan';
+      }
+    }
+
     const parts: string[] = [planText];
     if (periodEnd) {
       const d = new Date(periodEnd);
       parts.push(`renews on ${d.toLocaleDateString()}`);
     }
-
     return { label: 'Subscribed', subline: parts.join(' • ') };
   }
 
@@ -213,7 +225,7 @@ export default async function DashboardPage() {
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
             <div className="text-sm text-slate-500">Current plan</div>
-            <div className="mt-1 flex flex-wrap items-center gap-2">
+            <div className="mt-1 flex flex-wrap md:flex-nowrap items-center gap-3">
               <span
                 className={
                   isPremium
