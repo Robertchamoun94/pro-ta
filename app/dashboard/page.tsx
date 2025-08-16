@@ -4,7 +4,7 @@ import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { createServerComponentClient } from '@supabase/auth-helpers-nextjs';
-import { stripe } from '@/lib/stripe'; // ← används endast vid sista-fallback
+import { stripe } from '@/lib/stripe'; // endast för SSR-fallback
 
 type PlanType = 'free' | 'single' | 'monthly' | 'yearly' | null;
 type PlanStatus = 'active' | 'canceled' | 'incomplete' | 'trialing' | null;
@@ -12,7 +12,7 @@ type Profile = {
   plan_type: PlanType;
   plan_status: PlanStatus;
   current_period_end: string | null;
-  stripe_customer_id?: string | null; // ← för SSR-fallback
+  stripe_customer_id?: string | null;
 };
 
 function formatPlan(plan: PlanType): string {
@@ -43,14 +43,13 @@ function getPlanDisplay(profile: Profile | null): { label: string; subline: stri
   const status = profile?.plan_status ?? null;
   const periodEnd = profile?.current_period_end ?? null;
 
-  if (status === 'active') {
+  if (status === 'active' || status === 'trialing') {
     let planText = '';
     if (plan === 'monthly') planText = '1 Month plan';
     else if (plan === 'yearly') planText = '1 Year plan';
     else if (plan === 'single') planText = 'Single Analysis';
     else planText = formatPlan(plan);
 
-    // Visa tydligt när nästa period förnyas/löper ut om datum finns.
     const parts: string[] = [planText];
     if (periodEnd) {
       const d = new Date(periodEnd);
@@ -63,7 +62,6 @@ function getPlanDisplay(profile: Profile | null): { label: string; subline: stri
     };
   }
 
-  // Fallback exakt som tidigare
   return {
     label: formatPlan(plan),
     subline: formatSubline(status, periodEnd),
@@ -85,7 +83,7 @@ export default async function DashboardPage() {
   try {
     const { data } = await supabase
       .from('profiles')
-      .select('plan_type, plan_status, current_period_end, stripe_customer_id') // ← lägg till customer-id
+      .select('plan_type, plan_status, current_period_end, stripe_customer_id')
       .eq('id', session!.user.id)
       .maybeSingle();
     profile = (data as Profile) ?? null;
@@ -95,34 +93,36 @@ export default async function DashboardPage() {
 
   /**
    * 🔒 Sista-säkerhets-fallback:
-   * Om användaren är ACTIVE men current_period_end saknas,
-   * hämta sub från Stripe med stripe_customer_id och fyll datumet (samt skriv tillbaka).
-   * Detta hanterar ev. race/leveransordning i webhooks och gör att UI:n alltid visar datum direkt.
+   * Om användaren är ACTIVE/TRIALING men current_period_end saknas,
+   * hämta sub från Stripe och fyll datumet (samt skriv tillbaka).
    */
   if (
-    profile?.plan_status === 'active' &&
+    (profile?.plan_status === 'active' || profile?.plan_status === 'trialing') &&
     !profile.current_period_end &&
     profile.stripe_customer_id
   ) {
     try {
-      // Hämta aktiv sub för kunden
+      // Hämta subbar (alla statusar) och välj active/trialing
       const subs = await stripe.subscriptions.list({
         customer: profile.stripe_customer_id,
-        status: 'active',
-        limit: 1,
+        status: 'all',
+        limit: 5,
       });
-      const sub = subs.data[0];
+      const sub =
+        subs.data.find(s => s.status === 'active' || s.status === 'trialing') ??
+        subs.data[0];
 
       let nextEndISO: string | null = null;
       let planType: PlanType = profile.plan_type;
 
       if (sub) {
-        if (typeof (sub as any).current_period_end === 'number') {
-          nextEndISO = new Date((sub as any).current_period_end * 1000).toISOString();
+        const anySub: any = sub as any;
+
+        if (typeof anySub.current_period_end === 'number') {
+          nextEndISO = new Date(anySub.current_period_end * 1000).toISOString();
         } else {
-          // Beräkna från start + interval om Stripe inte skickat current_period_end än
-          const start = (sub as any).current_period_start as number | undefined;
-          const interval = sub.items?.data?.[0]?.price?.recurring?.interval;
+          const start = anySub.current_period_start as number | undefined;
+          const interval = sub.items?.data?.[0]?.price?.recurring?.interval; // 'month' | 'year'
           if (start && interval) {
             const d = new Date(start * 1000);
             if (interval === 'year') d.setUTCFullYear(d.getUTCFullYear() + 1);
@@ -139,26 +139,24 @@ export default async function DashboardPage() {
       }
 
       if (nextEndISO) {
-        // Skriv tillbaka till profiles för att hålla DB synkad
         await supabase
           .from('profiles')
           .update({
             current_period_end: nextEndISO,
             plan_type: planType ?? profile.plan_type,
-            plan_status: 'active',
+            plan_status: profile.plan_status ?? 'active',
           })
           .eq('id', session!.user.id);
 
-        // Uppdatera lokalt så UI visar datum direkt
         profile = {
           ...profile,
           current_period_end: nextEndISO,
           plan_type: planType ?? profile.plan_type,
-          plan_status: 'active',
+          plan_status: profile.plan_status ?? 'active',
         };
       }
     } catch {
-      // Tyst – fallback är best-effort för att säkra UI; webhooks fyller vanligtvis snart ändå.
+      // Best-effort: webhooks kompletterar normalt snart ändå
     }
   }
 
