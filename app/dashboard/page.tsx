@@ -4,7 +4,7 @@ import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { createServerComponentClient } from '@supabase/auth-helpers-nextjs';
-import { stripe } from '@/lib/stripe'; // endast för SSR-fallback
+import { stripe } from '@/lib/stripe'; // Endast för SSR-fallback
 
 type PlanType = 'free' | 'single' | 'monthly' | 'yearly' | null;
 type PlanStatus = 'active' | 'canceled' | 'incomplete' | 'trialing' | null;
@@ -103,9 +103,8 @@ export default async function DashboardPage() {
    * Kör om vi saknar datum och har stripe_customer_id, och antingen
    * - har plan_type monthly/yearly, eller
    * - är i status active/trialing.
-   * Hämtar subbar, väljer den senaste relevanta och beräknar periodslut.
    */
-  const needsBackfill =
+  const needsBackfill: boolean =
     !!profile?.stripe_customer_id &&
     !profile?.current_period_end &&
     (
@@ -123,7 +122,7 @@ export default async function DashboardPage() {
         limit: 10,
       });
 
-      // Välj bästa kandidat: active/trialing i första hand, annars senaste (created/period_start)
+      // Bästa kandidat: active/trialing, annars senaste (created/period_start)
       const candidates = list.data;
       const pick =
         candidates.find(s => s.status === 'active' || s.status === 'trialing') ??
@@ -158,24 +157,32 @@ export default async function DashboardPage() {
 
         if (endUnix) {
           const nextEndISO = new Date(endUnix * 1000).toISOString();
+
+          // Gör planType helt typsäker (ingen undefined)
+          const currentPlan: PlanType = profile ? profile.plan_type : null;
           const planType: PlanType =
-            interval === 'year' ? 'yearly' : interval === 'month' ? 'monthly' : profile?.plan_type;
+            interval === 'year'
+              ? 'yearly'
+              : interval === 'month'
+              ? 'monthly'
+              : currentPlan;
+
+          const nextStatus: PlanStatus = profile?.plan_status ?? (pick.status as PlanStatus) ?? null;
 
           await supabase
             .from('profiles')
             .update({
               current_period_end: nextEndISO,
-              plan_type: planType ?? profile?.plan_type ?? null,
-              // behåll befintlig status om vi har en; annars lägg pick.status
-              plan_status: profile?.plan_status ?? (pick.status as any),
+              plan_type: planType,
+              plan_status: nextStatus,
             })
             .eq('id', session!.user.id);
 
           profile = {
             ...(profile as Profile),
             current_period_end: nextEndISO,
-            plan_type: planType ?? profile?.plan_type ?? null,
-            plan_status: profile?.plan_status ?? (pick.status as any),
+            plan_type: planType,
+            plan_status: nextStatus,
           };
         }
       }
