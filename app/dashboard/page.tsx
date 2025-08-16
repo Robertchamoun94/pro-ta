@@ -68,6 +68,13 @@ function getPlanDisplay(profile: Profile | null): { label: string; subline: stri
   };
 }
 
+// Normalisera Stripe-intervallet till endast 'month' | 'year'
+function normalizeInterval(iv: unknown): 'month' | 'year' | undefined {
+  if (iv === 'month') return 'month';
+  if (iv === 'year') return 'year';
+  return undefined;
+}
+
 export default async function DashboardPage() {
   const supabase = createServerComponentClient({ cookies });
   const {
@@ -116,7 +123,7 @@ export default async function DashboardPage() {
         limit: 10,
       });
 
-      // Välj den bästa kandidaten: active/trialing i första hand, annars senaste på created/current_period_start
+      // Välj bästa kandidat: active/trialing i första hand, annars senaste (created/period_start)
       const candidates = list.data;
       const pick =
         candidates.find(s => s.status === 'active' || s.status === 'trialing') ??
@@ -135,8 +142,9 @@ export default async function DashboardPage() {
         let endUnix: number | null =
           typeof anySub.current_period_end === 'number' ? anySub.current_period_end : null;
 
-        const interval: 'month' | 'year' | undefined =
-          pick.items?.data?.[0]?.price?.recurring?.interval;
+        const interval = normalizeInterval(
+          pick.items?.data?.[0]?.price?.recurring?.interval
+        ); // 'month' | 'year' | undefined
 
         if (!endUnix) {
           const start = anySub.current_period_start as number | undefined;
