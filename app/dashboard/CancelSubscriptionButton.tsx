@@ -1,11 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 
 export default function CancelSubscriptionButton() {
   const [loading, setLoading] = useState(false);
-  const router = useRouter();
 
   async function onClick() {
     const ok = window.confirm(
@@ -15,14 +13,21 @@ export default function CancelSubscriptionButton() {
 
     setLoading(true);
     try {
-      const res = await fetch('/api/cancel-subscription', { method: 'POST' });
+      const res = await fetch('/api/cancel-subscription', {
+        method: 'POST',
+        cache: 'no-store',          // säkerställ att vi inte får en cachead respons
+        headers: { 'Content-Type': 'application/json' },
+      });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         alert(data?.message || 'Could not cancel subscription.');
         return;
       }
+
       alert('Subscription set to cancel at the period end.');
-      router.refresh(); // uppdatera dashboard-visningen
+
+      // 🔒 Garanti: hård navigering med cache-bust => servern hämtar ny profil direkt
+      window.location.assign('/dashboard?ts=' + Date.now());
     } catch {
       alert('Network error. Please try again.');
     } finally {
