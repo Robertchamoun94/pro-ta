@@ -34,10 +34,6 @@ function formatSubline(status: PlanStatus, periodEnd: string | null): string {
   return parts.join(' • ');
 }
 
-/**
- * Endast visningslogik: om prenumerationen är aktiv, visa "Subscribed" och rätt plantext.
- * Layout och övrig logik lämnas orörd.
- */
 function getPlanDisplay(profile: Profile | null): { label: string; subline: string } {
   const plan = profile?.plan_type ?? 'free';
   const status = profile?.plan_status ?? null;
@@ -56,16 +52,10 @@ function getPlanDisplay(profile: Profile | null): { label: string; subline: stri
       parts.push(`renews on ${d.toLocaleDateString()}`);
     }
 
-    return {
-      label: 'Subscribed',
-      subline: parts.join(' • '),
-    };
+    return { label: 'Subscribed', subline: parts.join(' • ') };
   }
 
-  return {
-    label: formatPlan(plan),
-    subline: formatSubline(status, periodEnd),
-  };
+  return { label: formatPlan(plan), subline: formatSubline(status, periodEnd) };
 }
 
 // Normalisera Stripe-intervallet till endast 'month' | 'year'
@@ -85,7 +75,7 @@ export default async function DashboardPage() {
     redirect(`/auth/sign-in?redirect=${encodeURIComponent('/dashboard')}`);
   }
 
-  // Läs profil (om tabell/kolumn saknas => fallback till Free)
+  // Läs profil
   let profile: Profile | null = null;
   try {
     const { data } = await supabase
@@ -98,13 +88,8 @@ export default async function DashboardPage() {
     profile = null;
   }
 
-  /**
-   * 🔒 Sista-säkerhets-fallback:
-   * Kör om vi saknar datum och har stripe_customer_id, och antingen
-   * - har plan_type monthly/yearly, eller
-   * - är i status active/trialing.
-   */
-  const needsBackfill: boolean =
+  // 🔒 Sista-säkerhets-fallback (även för yearly):
+  const needsBackfill =
     !!profile?.stripe_customer_id &&
     !profile?.current_period_end &&
     (
@@ -122,7 +107,6 @@ export default async function DashboardPage() {
         limit: 10,
       });
 
-      // Bästa kandidat: active/trialing, annars senaste (created/period_start)
       const candidates = list.data;
       const pick =
         candidates.find(s => s.status === 'active' || s.status === 'trialing') ??
@@ -137,18 +121,19 @@ export default async function DashboardPage() {
       if (pick) {
         const anySub: any = pick as any;
 
-        // Ta current_period_end om den finns, annars räkna start + interval
+        // 1) Försök använda current_period_end direkt
         let endUnix: number | null =
           typeof anySub.current_period_end === 'number' ? anySub.current_period_end : null;
 
-        const interval = normalizeInterval(
-          pick.items?.data?.[0]?.price?.recurring?.interval
-        ); // 'month' | 'year' | undefined
-
+        // 2) Annars räkna själv: start = current_period_start || created
+        const interval = normalizeInterval(pick.items?.data?.[0]?.price?.recurring?.interval);
         if (!endUnix) {
-          const start = anySub.current_period_start as number | undefined;
-          if (start && interval) {
-            const d = new Date(start * 1000);
+          const rawStart =
+            (typeof anySub.current_period_start === 'number' ? anySub.current_period_start : undefined) ??
+            (typeof anySub.created === 'number' ? anySub.created : undefined);
+
+          if (rawStart && interval) {
+            const d = new Date(rawStart * 1000);
             if (interval === 'year') d.setUTCFullYear(d.getUTCFullYear() + 1);
             else d.setUTCMonth(d.getUTCMonth() + 1);
             endUnix = Math.floor(d.getTime() / 1000);
@@ -157,15 +142,9 @@ export default async function DashboardPage() {
 
         if (endUnix) {
           const nextEndISO = new Date(endUnix * 1000).toISOString();
-
-          // Gör planType helt typsäker (ingen undefined)
           const currentPlan: PlanType = profile ? profile.plan_type : null;
           const planType: PlanType =
-            interval === 'year'
-              ? 'yearly'
-              : interval === 'month'
-              ? 'monthly'
-              : currentPlan;
+            interval === 'year' ? 'yearly' : interval === 'month' ? 'monthly' : currentPlan;
 
           const nextStatus: PlanStatus = profile?.plan_status ?? (pick.status as PlanStatus) ?? null;
 
@@ -200,7 +179,6 @@ export default async function DashboardPage() {
         Signed in as <span className="font-medium text-slate-800">{session!.user.email}</span>
       </p>
 
-      {/* Enda kvarvarande kortet: Plan + knappar */}
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
