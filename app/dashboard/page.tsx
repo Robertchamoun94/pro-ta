@@ -93,70 +93,86 @@ export default async function DashboardPage() {
 
   /**
    * 🔒 Sista-säkerhets-fallback:
-   * Om användaren är ACTIVE/TRIALING men current_period_end saknas,
-   * hämta sub från Stripe och fyll datumet (samt skriv tillbaka).
+   * Kör om vi saknar datum och har stripe_customer_id, och antingen
+   * - har plan_type monthly/yearly, eller
+   * - är i status active/trialing.
+   * Hämtar subbar, väljer den senaste relevanta och beräknar periodslut.
    */
-  if (
-    (profile?.plan_status === 'active' || profile?.plan_status === 'trialing') &&
-    !profile.current_period_end &&
-    profile.stripe_customer_id
-  ) {
+  const needsBackfill =
+    !!profile?.stripe_customer_id &&
+    !profile?.current_period_end &&
+    (
+      profile?.plan_type === 'monthly' ||
+      profile?.plan_type === 'yearly' ||
+      profile?.plan_status === 'active' ||
+      profile?.plan_status === 'trialing'
+    );
+
+  if (needsBackfill) {
     try {
-      // Hämta subbar (alla statusar) och välj active/trialing
-      const subs = await stripe.subscriptions.list({
-        customer: profile.stripe_customer_id,
+      const list = await stripe.subscriptions.list({
+        customer: profile!.stripe_customer_id!,
         status: 'all',
-        limit: 5,
+        limit: 10,
       });
-      const sub =
-        subs.data.find(s => s.status === 'active' || s.status === 'trialing') ??
-        subs.data[0];
 
-      let nextEndISO: string | null = null;
-      let planType: PlanType = profile.plan_type;
+      // Välj den bästa kandidaten: active/trialing i första hand, annars senaste på created/current_period_start
+      const candidates = list.data;
+      const pick =
+        candidates.find(s => s.status === 'active' || s.status === 'trialing') ??
+        candidates
+          .slice()
+          .sort((a: any, b: any) => {
+            const aStart = (a as any).current_period_start ?? a.created ?? 0;
+            const bStart = (b as any).current_period_start ?? b.created ?? 0;
+            return bStart - aStart;
+          })[0];
 
-      if (sub) {
-        const anySub: any = sub as any;
+      if (pick) {
+        const anySub: any = pick as any;
 
-        if (typeof anySub.current_period_end === 'number') {
-          nextEndISO = new Date(anySub.current_period_end * 1000).toISOString();
-        } else {
+        // Ta current_period_end om den finns, annars räkna start + interval
+        let endUnix: number | null =
+          typeof anySub.current_period_end === 'number' ? anySub.current_period_end : null;
+
+        const interval: 'month' | 'year' | undefined =
+          pick.items?.data?.[0]?.price?.recurring?.interval;
+
+        if (!endUnix) {
           const start = anySub.current_period_start as number | undefined;
-          const interval = sub.items?.data?.[0]?.price?.recurring?.interval; // 'month' | 'year'
           if (start && interval) {
             const d = new Date(start * 1000);
             if (interval === 'year') d.setUTCFullYear(d.getUTCFullYear() + 1);
             else d.setUTCMonth(d.getUTCMonth() + 1);
-            nextEndISO = d.toISOString();
+            endUnix = Math.floor(d.getTime() / 1000);
           }
         }
 
-        // Sätt planType utifrån sub:en om det saknas/fel
-        const interval = sub.items?.data?.[0]?.price?.recurring?.interval;
-        if (!planType || planType === 'free') {
-          planType = interval === 'year' ? 'yearly' : 'monthly';
+        if (endUnix) {
+          const nextEndISO = new Date(endUnix * 1000).toISOString();
+          const planType: PlanType =
+            interval === 'year' ? 'yearly' : interval === 'month' ? 'monthly' : profile?.plan_type;
+
+          await supabase
+            .from('profiles')
+            .update({
+              current_period_end: nextEndISO,
+              plan_type: planType ?? profile?.plan_type ?? null,
+              // behåll befintlig status om vi har en; annars lägg pick.status
+              plan_status: profile?.plan_status ?? (pick.status as any),
+            })
+            .eq('id', session!.user.id);
+
+          profile = {
+            ...(profile as Profile),
+            current_period_end: nextEndISO,
+            plan_type: planType ?? profile?.plan_type ?? null,
+            plan_status: profile?.plan_status ?? (pick.status as any),
+          };
         }
       }
-
-      if (nextEndISO) {
-        await supabase
-          .from('profiles')
-          .update({
-            current_period_end: nextEndISO,
-            plan_type: planType ?? profile.plan_type,
-            plan_status: profile.plan_status ?? 'active',
-          })
-          .eq('id', session!.user.id);
-
-        profile = {
-          ...profile,
-          current_period_end: nextEndISO,
-          plan_type: planType ?? profile.plan_type,
-          plan_status: profile.plan_status ?? 'active',
-        };
-      }
     } catch {
-      // Best-effort: webhooks kompletterar normalt snart ändå
+      // Best-effort – webhooks kompletterar annars
     }
   }
 
