@@ -1,11 +1,17 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, startTransition } from 'react';
 import { useRouter } from 'next/navigation';
 
 export default function CancelSubscriptionButton() {
   const [loading, setLoading] = useState(false);
+  const [done, setDone] = useState(false); // ✅ optimistisk låsning efter första lyckade klicket
   const router = useRouter();
+
+  if (done) {
+    // Döljer knappen direkt när vi vet att uppsägningen är igång
+    return null;
+  }
 
   async function onClick() {
     const ok = window.confirm(
@@ -21,8 +27,16 @@ export default function CancelSubscriptionButton() {
         alert(data?.message || 'Could not cancel subscription.');
         return;
       }
+
+      // ✅ Optimistiskt: lås och göm knappen direkt
+      setDone(true);
       alert('Subscription set to cancel at the period end.');
-      router.refresh(); // uppdatera dashboard-visningen
+
+      // ✅ Cache-bust + re-render på första försöket
+      startTransition(() => {
+        router.replace('/dashboard?ts=' + Date.now());
+        router.refresh();
+      });
     } catch {
       alert('Network error. Please try again.');
     } finally {
