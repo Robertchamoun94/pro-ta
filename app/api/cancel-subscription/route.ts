@@ -36,25 +36,24 @@ export async function POST() {
       limit: 20,
     });
 
-    const active = subs.data.find(
-      (s) => s.status === 'active' || s.status === 'trialing'
-    );
-
+    const active = subs.data.find(s => s.status === 'active' || s.status === 'trialing');
     if (!active) {
       return NextResponse.json({ message: 'No active subscription found.' }, { status: 404 });
     }
 
-    // Idempotent: om redan markerad att avslutas → använd den
-    const updated = active.cancel_at_period_end
+    // Idempotent uppsägning vid periodens slut
+    const updatedAny: any = active.cancel_at_period_end
       ? active
-      : await stripe.subscriptions.update(active.id, {
-          cancel_at_period_end: true,
-        });
+      : await stripe.subscriptions.update(active.id, { cancel_at_period_end: true });
 
-    const endUnix = updated.cancel_at ?? updated.current_period_end ?? null;
+    // Beräkna slutdatum (cancel_at om satt, annars current_period_end)
+    const endUnix: number | null =
+      (typeof updatedAny.cancel_at === 'number' ? updatedAny.cancel_at : null) ??
+      (typeof updatedAny.current_period_end === 'number' ? updatedAny.current_period_end : null);
+
     const endIso = endUnix ? new Date(endUnix * 1000).toISOString() : null;
 
-    // Uppdatera profil: status=canceled, behåll plan_type, uppdatera end-datum
+    // Uppdatera profilen (behåller plan_type, sätter status=canceled och end-datum)
     await supabase
       .from('profiles')
       .update({
