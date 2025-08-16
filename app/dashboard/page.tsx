@@ -187,6 +187,11 @@ export default async function DashboardPage() {
 
   const { label: planLabel, subline } = getPlanDisplay(profile);
 
+  // 🔔 Endast UI: guldig badge för aktiva premium-planer (monthly/yearly)
+  const isPremium =
+    (profile?.plan_type === 'monthly' || profile?.plan_type === 'yearly') &&
+    (profile?.plan_status === 'active' || profile?.plan_status === 'trialing');
+
   return (
     <main className="min-h-[60vh] px-6 py-10">
       <h1 className="text-2xl font-semibold mb-2">Dashboard</h1>
@@ -199,7 +204,13 @@ export default async function DashboardPage() {
           <div>
             <div className="text-sm text-slate-500">Current plan</div>
             <div className="mt-1 flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center rounded-full border border-slate-300 bg-slate-100 px-3 py-1 text-sm text-slate-800">
+              <span
+                className={
+                  isPremium
+                    ? 'inline-flex items-center rounded-full px-3 py-1 text-sm text-slate-900 bg-gradient-to-br from-yellow-300 via-amber-400 to-yellow-500 ring-1 ring-amber-500/40 shadow-sm'
+                    : 'inline-flex items-center rounded-full border border-slate-300 bg-slate-100 px-3 py-1 text-sm text-slate-800'
+                }
+              >
                 {planLabel}
               </span>
               <span className="text-xs text-slate-500">{subline}</span>
