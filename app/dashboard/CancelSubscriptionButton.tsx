@@ -1,17 +1,9 @@
 'use client';
 
-import { useState, startTransition } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState } from 'react';
 
 export default function CancelSubscriptionButton() {
   const [loading, setLoading] = useState(false);
-  const [done, setDone] = useState(false); // ✅ optimistisk låsning efter första lyckade klicket
-  const router = useRouter();
-
-  if (done) {
-    // Döljer knappen direkt när vi vet att uppsägningen är igång
-    return null;
-  }
 
   async function onClick() {
     const ok = window.confirm(
@@ -21,22 +13,21 @@ export default function CancelSubscriptionButton() {
 
     setLoading(true);
     try {
-      const res = await fetch('/api/cancel-subscription', { method: 'POST' });
+      const res = await fetch('/api/cancel-subscription', {
+        method: 'POST',
+        cache: 'no-store',          // säkerställ att vi inte får en cachead respons
+        headers: { 'Content-Type': 'application/json' },
+      });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         alert(data?.message || 'Could not cancel subscription.');
         return;
       }
 
-      // ✅ Optimistiskt: lås och göm knappen direkt
-      setDone(true);
       alert('Subscription set to cancel at the period end.');
 
-      // ✅ Cache-bust + re-render på första försöket
-      startTransition(() => {
-        router.replace('/dashboard?ts=' + Date.now());
-        router.refresh();
-      });
+      // 🔒 Garanti: hård navigering med cache-bust => servern hämtar ny profil direkt
+      window.location.assign('/dashboard?ts=' + Date.now());
     } catch {
       alert('Network error. Please try again.');
     } finally {
