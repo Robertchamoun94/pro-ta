@@ -1,13 +1,15 @@
 // components/SiteFooter.tsx
+import Link from 'next/link';
+
 export default function SiteFooter() {
   return (
-    <footer className="mx-auto w-full max-w-4xl px-6 py-10 text-sm text-slate-500">
-      <div className="flex flex-wrap items-center gap-4 justify-between border-t border-slate-200 pt-6">
-        <p>© {new Date().getFullYear()} ArcSignals. All rights reserved.</p>
-        <nav className="flex items-center gap-4">
-          <a href="/terms" className="hover:underline">Terms</a>
-          <a href="/privacy" className="hover:underline">Privacy</a>
-          <a href="mailto:support@yourdomain.com" className="hover:underline">Contact</a>
+    <footer className="mt-16 border-t border-slate-200 py-6 text-sm text-slate-600">
+      <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-4">
+        <div>© {new Date().getFullYear()} ArcSignals. All rights reserved.</div>
+        <nav className="flex items-center gap-6">
+          <Link href="/terms" className="hover:underline">Terms</Link>
+          <Link href="/privacy" className="hover:underline">Privacy</Link>
+          <Link href="/contact" className="hover:underline">Contact</Link>
         </nav>
       </div>
     </footer>
