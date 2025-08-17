@@ -191,7 +191,7 @@ export default function PrivacyPage() {
           </summary>
           <p className="mt-3 text-slate-700">
             Data controller: ArcSignals. Questions or requests? Email{' '}
-            <a className="underline" href="mailto:support@yourdomain.com">support@yourdomain.com</a>.
+            <a className="underline" href="mailto:support@yourdomain.com">Arcsignals@hotmail.com</a>.
           </p>
         </details>
       </div>
