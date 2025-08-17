@@ -11,6 +11,8 @@ export default async function Page() {
     data: { session },
   } = await supabase.auth.getSession();
 
+  const isLoggedIn = !!session; // ✅ används bara för CTA-beteendet
+
   let credits = 0;
   let hasActiveSubscription = false;
 
@@ -66,6 +68,7 @@ export default async function Page() {
         <AnalyzeForm
           initialCredits={credits}
           hasActiveSubscription={hasActiveSubscription}
+          isLoggedIn={isLoggedIn}
         />
       </section>
     </>
