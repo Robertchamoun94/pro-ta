@@ -1,3 +1,4 @@
+import SiteFooter from '@/components/SiteFooter';
 import './globals.css';
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
@@ -17,6 +18,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <body className="min-h-screen bg-slate-50 text-slate-900 antialiased">
         <HeaderAuth />
         <main className="mx-auto w-full max-w-6xl px-4 py-8">{children}</main>
+        <SiteFooter /> {/* ✅ footern renderas precis före </body> */}
       </body>
     </html>
   );
