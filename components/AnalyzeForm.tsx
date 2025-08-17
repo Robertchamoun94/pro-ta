@@ -225,13 +225,53 @@ export default function AnalyzeForm({
 
         {/* Actions: Generate + Download PDF */}
         <div className="flex items-center gap-3">
-          <button
-            type="submit"
-            disabled={submitting || (!hasActiveSubscription && creditsLeft <= 0)}
-            className="rounded-lg bg-slate-900 px-4 py-2 font-medium text-white disabled:opacity-60"
-          >
-            {submitting ? 'Generating…' : 'Generate Analysis'}
-          </button>
+          {(() => {
+            const canRun = hasActiveSubscription || creditsLeft > 0;
+
+            if (!canRun) {
+              const back =
+                typeof window !== 'undefined'
+                  ? window.location.pathname + window.location.search
+                  : '/';
+
+              if (!isLoggedIn) {
+                // Utloggad → till Sign in
+                return (
+                  <button
+                    type="button"
+                    className="rounded-lg bg-slate-900 px-4 py-2 font-medium text-white"
+                    onClick={() =>
+                      router.push(`/auth/sign-in?redirect=${encodeURIComponent(back)}`)
+                    }
+                  >
+                    Generate Analysis
+                  </button>
+                );
+              }
+
+              // Inloggad men saknar access → till Pricing
+              return (
+                <button
+                  type="button"
+                  className="rounded-lg bg-slate-900 px-4 py-2 font-medium text-white"
+                  onClick={() => router.push('/pricing')}
+                >
+                  Generate Analysis
+                </button>
+              );
+            }
+
+            // Har access → exakt som tidigare (submit + progress)
+            return (
+              <button
+                type="submit"
+                disabled={submitting}
+                className="rounded-lg bg-slate-900 px-4 py-2 font-medium text-white disabled:opacity-60"
+              >
+                {submitting ? 'Generating…' : 'Generate Analysis'}
+              </button>
+            );
+          })()}
 
           {downloadUrl && (
             <a
