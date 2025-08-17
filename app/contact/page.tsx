@@ -1,7 +1,7 @@
-// app/contact/page.tsx
-import ContactForm from '@/components/ContactForm';
+import type { Metadata } from 'next';
+import ContactForm from './ContactForm';
 
-export const metadata = {
+export const metadata: Metadata = {
   title: 'Contact — ArcSignals',
   description: 'Get in touch with ArcSignals support.',
 };
