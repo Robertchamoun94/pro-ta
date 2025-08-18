@@ -7,6 +7,13 @@ import HeaderAuth from '../components/HeaderAuth';
 export const metadata: Metadata = {
   title: 'ArcSignals',
   description: 'AI-powered technical analysis',
+  icons: {
+    icon: [
+      { url: '/favicon_from_svg.ico' }, // standard favicon
+      { url: '/favicon-32x32.png', sizes: '32x32', type: 'image/png' }, // png fallback
+    ],
+  },
+  manifest: '/manifest.json', // PWA/ikon-manifest
 };
 
 // säkerställ korrekt header (ingen statisk cache)
